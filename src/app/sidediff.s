@@ -19,9 +19,9 @@ g_diff_doc: .quad 0
 cfg_side_diff: .long 1
 .section .rodata
 sd_head: .ascii "HEAD (read only)"
-.equ sd_head_len, . - sd_head
+sd_head_end:
 sd_work: .ascii "Working tree (editable)"
-.equ sd_work_len, . - sd_work
+sd_work_end:
 .text
 
 FN side_base_free
@@ -496,7 +496,8 @@ FN git_side_draw
     mov edx, [rsp + 4]
     mov ecx, r13d
     lea r8, [rip + sd_head]
-    mov r9d, sd_head_len
+    lea r9, [rip + sd_head_end]
+    sub r9, r8
     COLOR eax, T_FG
     push rax
     push rax
@@ -508,7 +509,8 @@ FN git_side_draw
     mov edx, [rsp + 4]
     mov ecx, r13d
     lea r8, [rip + sd_work]
-    mov r9d, sd_work_len
+    lea r9, [rip + sd_work_end]
+    sub r9, r8
     COLOR eax, T_FG
     push rax
     push rax

@@ -227,7 +227,8 @@ preview_refresh:               # MP*: update from the live buffer, including uns
     jmp 9f
 8:  mov rdi, [rbx + MP_dc]
     lea rsi, [rip + .Llarge]
-    mov edx, .Llarge_len
+    lea rdx, [rip + .Llarge_end]
+    sub rdx, rsi
     call mdview_set_text
     mov [rbx + MP_version], r13
 9:  EPILOGUE
@@ -511,5 +512,6 @@ FN mdpreview_dump
 .Lmdown: .asciz "mdown"
 .Lsuffix: .asciz " (Preview)"
 .Ltitle: .asciz "Preview"
-.Llarge: .asciz "Markdown preview supports documents up to 1 MiB."
-.equ .Llarge_len, . - .Llarge - 1
+.Llarge: .ascii "Markdown preview supports documents up to 1 MiB."
+.Llarge_end:
+    .byte 0

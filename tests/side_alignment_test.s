@@ -12,12 +12,14 @@ sa_again:
     mov rdi, rax
     xor esi, esi
     lea rdx, [rip + sa_old]
-    mov ecx, OFFSET FLAT:sa_old_len
+    lea rcx, [rip + sa_old_end]
+    sub rcx, rdx
     call raw_insert
     mov rdi, rbx
     xor esi, esi
     lea rdx, [rip + sa_new]
-    mov ecx, OFFSET FLAT:sa_new_len
+    lea rcx, [rip + sa_new_end]
+    sub rcx, rdx
     call raw_insert
     mov rdi, rbx
     call side_prepare
@@ -93,9 +95,9 @@ sa_fail:
     EPILOGUE
 .section .rodata
 sa_old: .ascii "alpha\ndelete one\ndelete two\nbeta\nold\ngamma\nlast\n"
-.equ sa_old_len, . - sa_old
+sa_old_end:
 sa_new: .ascii "alpha\nbeta\nnew\nextra\ngamma\nlast\n"
-.equ sa_new_len, . - sa_new
+sa_new_end:
 sa_more: .ascii "x\n"
 sa_expected: .quad 0,0, 1,-1, 2,-1, 3,1, 4,2, -1,3, 5,4, 6,5, 7,6
 sa_ok: .asciz "ok aligned diff mapping, cache and ownership\n"

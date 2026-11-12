@@ -22,7 +22,8 @@ tl_alloc:
 1:  cmp dword ptr [rax + TL_used], 0
     je 2f
     add rax, TL_SIZE
-    loop 1b
+    dec ecx
+    jnz 1b
     xor eax, eax
     ret
 2:  mov dword ptr [rax + TL_used], 1
@@ -37,7 +38,8 @@ tl_find:                       # session -> leaf, or zero
     cmp [rax + TL_session], rdi
     je 3f
 2:  add rax, TL_SIZE
-    loop 1b
+    dec ecx
+    jnz 1b
     xor eax, eax
 3:  ret
 
@@ -187,14 +189,14 @@ tl_load:                       # session's render/input state -> working registe
     mov rsi, rdi
     add rsi, TS_view
     lea rdi, [rip + gx]
-    mov ecx, 10
-    rep movsq
+    mov ecx, 80
+    rep movsb
     ret
 tl_save:
     add rdi, TS_view
     lea rsi, [rip + gx]
-    mov ecx, 10
-    rep movsq
+    mov ecx, 80
+    rep movsb
     ret
 
 term_layout_key_state:

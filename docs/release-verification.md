@@ -21,6 +21,24 @@ on compositors without v3. Windows uses the native system input method.
   release YAML parsing, shell syntax, git diff whitespace checks.
 - Linux archive extraction and the included portable personal launcher.
 
+## macOS build compatibility follow-up
+
+The extension workflow for 31b17cc failed in its macOS Build step. Local
+reproduction found shared assembly that tools/arm64.py could not translate:
+LOOP, REP MOVSQ, and label-length immediates. These now use supported equivalent
+instructions and explicit start/end label differences. No CI job was disabled.
+
+- All 355 shared application, test and generated-asset translation units passed
+  tools/arm64.py and Clang assembly for arm64-apple-macos12.
+- All five native src/mac assembly files also passed Apple-target assembly.
+- Linux test and release builds and the Windows x64 release cross-build passed.
+- Terminal splits, editable side diff and the alignment/ownership unit test passed.
+- All 15 Markdown preview tests passed, including a new regression for editing
+  an open preview beyond the 1 MiB limit.
+
+These are cross-compilation and focused local checks. macOS framework linking
+and native extension execution still require a successful GitHub Actions run.
+
 ## Incomplete checks
 
 The full tests/run.sh run did not pass and was stopped after collecting failures.

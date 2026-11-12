@@ -128,6 +128,21 @@ class MarkdownPreview(unittest.TestCase):
         self.assertIn('up to 1 MiB', out)
         self.assertNotIn('(Preview)', out)
 
+    def test_live_preview_reports_limit_after_edit(self):
+        # Keep the large fixture cheap to lay out; the comment is hidden in the preview.
+        size = 1048575
+        prefix, suffix = '<!--\n', '\n-->\n'
+        padding = size - len(prefix) - len(suffix)
+        body = ('x' * 119 + '\n') * (padding // 120) + 'x' * (padding % 120)
+        self.file.write_text(prefix + body + suffix)
+        out = self.run_editor(['cmd markdown_preview_side', 'key ctrl+End',
+            'type END', 'wait 50', 'print-md-preview', 'print-state'])
+        text = ' '.join(line.split(' text=', 1)[1] for line in out.splitlines()
+                        if line.startswith('item text '))
+        self.assertEqual(text, 'Markdown preview supports documents up to 1 MiB.')
+        self.assertIn('dirty=1', out)
+        self.assertEqual(self.file.stat().st_size, size)
+
     def test_unhandled_link_is_safe_without_extension(self):
         self.file.write_text('[custom](custom:thing)\n')
         out = self.run_editor(['cmd markdown_preview', 'key Tab', 'key Return',
