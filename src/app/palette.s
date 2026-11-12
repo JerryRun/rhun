@@ -187,6 +187,7 @@ palette_open:
     PROLOGUE
     mov ebx, edi
     call extpage_prompt_invalidate_pure
+    call pal_workspace_cancel
     call pal_save_cancel
     call pal_remote_cancel
     call ext_provider_cancel
@@ -254,6 +255,7 @@ palette_open:
 FN palette_close
     push rbx
     call extpage_prompt_invalidate_pure
+    call pal_workspace_cancel
     call pal_save_cancel
     call pal_remote_cancel
     call ext_provider_cancel
@@ -276,12 +278,32 @@ FN palette_close
 
 # Accepting a prompt clears pal_mode before invoking its completion, so this handles only
 # Escape, outside clicks and replacement by another palette.
+pal_workspace_cancel:
+    cmp dword ptr [rip + pal_mode], PM_BROWSE
+    jne 1f
+    cmp dword ptr [rip + brw_kind], 3
+    je workspace_add_cancel
+1:  cmp dword ptr [rip + pal_mode], PM_PROMPT
+    jne 2f
+    cmp dword ptr [rip + pal_prompt], 101
+    je workspace_add_cancel
+2:  ret
+
 pal_save_cancel:
     cmp dword ptr [rip + pal_mode], PM_PROMPT
     jne 1f
     cmp dword ptr [rip + pal_prompt], PROMPT_SAVE_AS
     jne 1f
     jmp app_save_prompt_cancel
+1:  ret
+
+# Password/token prompts must never send keystrokes to the Pinyin engine.
+FN palette_is_secret
+    xor eax, eax
+    cmp dword ptr [rip + pal_prompt], PROMPT_REMOTE_SECRET
+    jne 1f
+    cmp dword ptr [rip + pal_mode], PM_PROMPT
+    sete al
 1:  ret
 
 # pal_remote_cancel(): remote hosts: a remote list or question closed without an answer
@@ -320,6 +342,11 @@ FN palette_remote_field
 # so a command from the palette acts where its shortcut would
 pal_return_focus:
     mov eax, FOCUS_EDITOR
+    cmp dword ptr [rip + pal_focus_before], FOCUS_MD_PREVIEW
+    jne 2f
+    mov eax, FOCUS_MD_PREVIEW
+    jmp 1f
+2:
     cmp dword ptr [rip + pal_focus_before], FOCUS_TERMINAL
     jne 1f
     cmp dword ptr [rip + g_term_open], 0
@@ -1985,6 +2012,7 @@ FN browse_open_kind
 browse_open:
     PROLOGUE
     mov ebx, edi
+    call pal_workspace_cancel
     mov [rip + brw_kind], ebx
     mov byte ptr [rip + brw_dir], 0
     mov edi, PM_BROWSE
@@ -1993,6 +2021,11 @@ browse_open:
     test ebx, ebx
     jz 1f
     lea rax, [rip + .Lph_open_folder]
+    cmp ebx, 3
+    jne 0f
+    lea rax, [rip + .Lph_workspace_destination]
+    jmp 1f
+0:
     cmp ebx, 2
     jne 1f
     lea rax, [rip + .Lph_add_folder]
@@ -2218,7 +2251,10 @@ browse_load:
     cmp dword ptr [rip + brw_kind], 2
     jne 88f
     lea rsi, [rip + .Ladd_here]
-88: call sb_push_cstr
+88: cmp dword ptr [rip + brw_kind], 3
+    jne 89f
+    lea rsi, [rip + .Lsave_here]
+89: call sb_push_cstr
     lea rdi, [rip + brw_label]
     lea rsi, [rip + brw_dir]
     call path_tilde
@@ -2236,7 +2272,7 @@ browse_load:
     call item_add
     mov ebx, 1
     cmp dword ptr [rip + brw_kind], 2  # adding: no new window
-    je 1f
+    jae 1f
     lea r13, [r12 + 1]
     lea rdi, [rip + strings]
     lea rsi, [rip + .Lopen_here]
@@ -3223,7 +3259,10 @@ palette_accept:
     jmp .Lpa_close
 .Lpa_prompt:
     cmp dword ptr [rip + pal_prompt], PROMPT_WS_SAVE  # resources group: Save Workspace As
+    je 65f
+    cmp dword ptr [rip + pal_prompt], 101  # Save workspace first, then Add Folder
     jne 66f
+65:
     lea rdi, [rip + pal_tf]
     call tf_text
     mov dword ptr [rip + pal_mode], PM_NONE
@@ -3232,7 +3271,8 @@ palette_accept:
     call pal_return_focus
     pop rsi
     pop rdi
-    call workspace_save_as
+    mov edx, [rip + pal_prompt]
+    call workspace_save_prompt_done
     mov dword ptr [rip + g_dirty], 1
     jmp .Lpa_ret
 66: # extension management: the folder or archive to install
@@ -3508,11 +3548,19 @@ palette_accept:
     lea rsi, [rip + brw_dir]
     call cstr_copy
 .Lpa_switch:
+    cmp dword ptr [rip + brw_kind], 3
+    jne 0f
+    mov dword ptr [rip + pal_mode], PM_NONE  # accepting the destination is not cancellation
+    call palette_close
+    lea rdi, [rip + brw_next]
+    call workspace_save_directory_ui
+    jmp .Lpa_ret
+0:
     call palette_close
     lea rdi, [rip + brw_next]
     cmp dword ptr [rip + brw_kind], 2
     jne 1f
-    call workspace_add_ui       # Add Folder to Workspace (workspace.s)
+    call workspace_add_picked_ui # Add Folder to Workspace (workspace.s)
     jmp .Lpa_ret
 1:  call app_switch_project
     jmp .Lpa_ret
@@ -4212,6 +4260,8 @@ hint_text:
 .Lopen_here: .asciz "Open "
 .Ladd_here: .asciz "Add "
 .Lph_add_folder: .asciz "Add a folder to the workspace"
+.Lph_workspace_destination: .asciz "Select a folder to save the workspace"
+.Lsave_here: .asciz "Save Workspace in "
 .Lopen_new: .asciz " in a new window"
 .Lroot: .asciz "/"
 .Lpp_none: .asciz "none\n"

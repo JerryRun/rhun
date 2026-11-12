@@ -3306,6 +3306,9 @@ FN remote_timeout
 # remote_tick(): open the project once connected; forget programs whose end everybody saw
 FN remote_tick
     PROLOGUE
+.ifdef WINDOWS
+    call remote_askpass_poll
+.endif
     cmp dword ptr [rip + g_remote], 0
     je 9f
     cmp dword ptr [rip + rm_need_open], 0
@@ -3314,9 +3317,6 @@ FN remote_tick
     call remote_connected
 1:  call vfs_tick               # watch events from the host
     call rm_rq_dispatch         # answers of requests made with remote_request_cb
-.ifdef WINDOWS
-    call remote_askpass_poll    # ssh's askpass program on the window's pipe (remoteui.s)
-.endif
     call remote_ext_tick        # extensions' files on their way to the host (remoteext.s)
     call time_ms
     mov r13, rax

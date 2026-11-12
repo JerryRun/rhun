@@ -258,6 +258,8 @@ FN fold_row_line
 # rows_mode() -> eax 1 when the active document scrolls by rows: wrapped lines, or folds. Keeps
 # every register but rax.
 FN rows_mode
+    cmp qword ptr [rip + g_diff_active], 0
+    jne .Lsd_rows_off
     mov eax, 1
     cmp dword ptr [rip + cfg_word_wrap], 0
     jne 9f
@@ -281,6 +283,10 @@ FN rows_mode
 7:  mov eax, 1
 8:  pop rcx
 9:  ret
+
+.Lsd_rows_off:
+    xor eax, eax
+    ret
 
 # fold_view_sync(doc): the scroll's form follows the mode (lines: DOC_scrolly; rows: the top line
 # and DOC_woff rows into it) and the top line is a visible one
@@ -344,6 +350,13 @@ FN fold_view_sync
 
 # fold_scroll_rows(doc) -> rax the lines the view scrolls through (folded ones left out)
 FN fold_scroll_rows
+    call side_is_active
+    test eax, eax
+    jz .Lsd_fold_rows_normal
+    mov rax, [rip + g_diff_active]
+    mov rax, [rax + 8]
+    ret
+.Lsd_fold_rows_normal:
     push rbx
     mov rbx, rdi
     mov rsi, [rbx + DOC_nlines]
@@ -357,6 +370,12 @@ FN fold_scroll_rows
 # fold_scroll_value(doc) -> rax the scroll in 1/256 of those lines: DOC_scrolly less the folded
 # lines above the top (and the rows' offset into the top line in rows mode, unwrapped)
 FN fold_scroll_value
+    call side_is_active
+    test eax, eax
+    jz .Lsd_fold_value_normal
+    mov rax, [rdi + DOC_scrolly]
+    ret
+.Lsd_fold_value_normal:
     push rbx
     push r12
     sub rsp, 8
@@ -389,6 +408,12 @@ FN fold_scroll_value
 
 # fold_scroll_set(doc, value): the scroll from a value in those 1/256 lines (a scrollbar drag)
 FN fold_scroll_set
+    call side_is_active
+    test eax, eax
+    jz .Lsd_fold_set_normal
+    mov [rdi + DOC_scrolly], rsi
+    ret
+.Lsd_fold_set_normal:
     push rbx
     push r12
     sub rsp, 8

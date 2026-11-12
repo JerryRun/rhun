@@ -140,6 +140,54 @@ FN mdview_check_op
 9:  mov eax, -1
     EPILOGUE
 
+# mdview_set_text(dc, ptr, len): replace rendered text, retaining scroll/base and owner.
+FN mdview_set_text
+    PROLOGUE
+    mov rbx, rdi
+    mov r12, rsi
+    mov r13, rdx
+    mov rdi, [rbx + DC_md]
+    call md_free
+    mov rdi, r12
+    mov rsi, r13
+    call md_new
+    mov [rbx + DC_md], rax
+    mov rdi, rax
+    mov rsi, [rbx + DC_ext]
+    call md_set_ext
+    mov rsi, [rbx + DC_base]
+    test rsi, rsi
+    jz 1f
+    mov rdi, rsi
+    call strlen
+    mov rdx, rax
+    mov rdi, [rbx + DC_md]
+    mov rsi, [rbx + DC_base]
+    call md_set_base
+1:  mov dword ptr [rbx + DC_line], -1
+    mov dword ptr [rip + g_dirty], 1
+    EPILOGUE
+
+# mdview_set_base(dc, ptr, len): own the folder, also applying it to an existing render.
+FN mdview_set_base
+    PROLOGUE
+    mov rbx, rdi
+    mov r12, rsi
+    mov r13, rdx
+    mov rdi, [rbx + DC_base]
+    call mem_free
+    mov rdi, r12
+    mov rsi, r13
+    call mem_dup
+    mov [rbx + DC_base], rax
+    mov rdi, [rbx + DC_md]
+    test rdi, rdi
+    jz 1f
+    mov rsi, rax
+    mov rdx, r13
+    call md_set_base
+1:  EPILOGUE
+
 # mdview_apply_op(dc, rr): a doc op doc_check_op passed
 FN mdview_apply_op
     PROLOGUE
@@ -414,7 +462,9 @@ FN mdview_link
     mov [rbx + DC_scroll], eax
     mov dword ptr [rip + g_dirty], 1
     EPILOGUE
-1:  mov edi, [rbx + DC_slot]
+1:  cmp qword ptr [rbx + DC_ext], 0
+    je 9f                       # native previews have no extension event receiver
+    mov edi, [rbx + DC_slot]
     mov rsi, r13
     mov rdx, r14
     call rview_link_event

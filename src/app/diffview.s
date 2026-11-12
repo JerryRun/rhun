@@ -12,6 +12,39 @@ dseq: .quad 0
 
 # ---------------- diff view ----------------
 
+# git_open_changes(path ptr, len): reuse the live working buffer, entering comparison mode.
+# Deleted or binary files retain the read-only Git diff fallback.
+FN git_open_changes
+    PROLOGUE
+    mov r12, rsi
+    mov r13, rdx
+    mov rdi, [rip + g_git_root]
+    mov rsi, r12
+    call path_join
+    mov rbx, rax
+    mov rdi, rax
+    call vfs_type
+    cmp eax, 0x8000
+    jne 2f
+    mov rdi, rbx
+    call app_open_file
+    test rax, rax
+    js 2f
+    mov rdi, rax
+    call tab_at
+    cmp qword ptr [rax + TAB_kind], TAB_DOC
+    jne 3f
+    or dword ptr [rax + TAB_flags], TF_SIDE_DIFF
+    mov dword ptr [rip + g_dirty], 1
+    jmp 3f
+2:  xor edi, edi
+    mov rsi, r12
+    mov rdx, r13
+    call git_open_diff
+3:  mov rdi, rbx
+    call mem_free
+    EPILOGUE
+
 # git_open_diff(rev cstr or 0, path ptr, len): a file's changes in a commit (or the work tree against HEAD)
 FN git_open_diff
     mov rcx, rdx
@@ -722,9 +755,8 @@ FN cmd_git_changes
     call git_rel
     test rax, rax
     jz 9f
-    xor edi, edi
     mov rsi, rax
-    call git_open_diff
+    call git_open_changes
 9:  EPILOGUE
 
 

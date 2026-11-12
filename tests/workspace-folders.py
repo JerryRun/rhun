@@ -103,6 +103,161 @@ class Folders(lifecycle.Base):
         self.assertEqual(f[0]['path'], str(self.lib))
         self.assertEqual(f[0]['flags'], '3')
 
+    # ---------------- workspace context menus ----------------
+
+    def workspace_ui(self):
+        config = self.work / 'config/rhun/config'
+        config.write_text(host.CONFIG.replace('sidebar = false', 'sidebar = true'))
+
+    def test_git_empty_space_selects_folder_then_save_destination(self):
+        self.git_repos()
+        self.workspace_ui()
+        wsfile = self.app / '我的工作.rhun-workspace'
+        out = self.run_ws([self.app], [
+            'click 120 580 right', 'print-menu', 'menu-pick Add Folder to Workspace',
+            'print-palette', 'key ctrl+a', f'type {self.lib}/', 'key Return', 'print-palette',
+            'print-folders', 'key Return', 'print-palette',
+            'key ctrl+a', f'type {wsfile}', 'key Return', 'print-folders',
+            'print-workspace', 'print-explorer', 'print-toast'])
+        self.assertIn('Add Folder to Workspace', out)
+        self.assertIn('prompt=Save the workspace as', out)
+        self.assertTrue(any(l.startswith('> Add ') for l in out), out)
+        add = next(i for i,l in enumerate(out) if l.startswith('> Add '))
+        destination = next(i for i,l in enumerate(out) if l.startswith('> Save Workspace in '))
+        save = out.index('prompt=Save the workspace as')
+        self.assertLess(add, destination)
+        self.assertLess(destination, save)
+        self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'proj', 'lib'])
+        self.assertIn(f'workspace={wsfile} title=我的工作', out)
+        self.assertIn('toast=Folder added to workspace', out)
+        self.assertIn(f'path = {self.lib}', wsfile.read_text())
+        # Fresh state: the definition alone restores the added folder.
+        for f in (self.work / 'state/rhun').glob('*.folders'):
+            f.unlink()
+        out = self.run_ws([wsfile], ['print-folders', 'print-workspace'])
+        self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'lib'])
+        self.assertIn(f'workspace={wsfile} title=我的工作', out)
+
+    def test_plain_directory_empty_space_has_no_workspace_action(self):
+        self.workspace_ui()
+        out = self.run_ws([self.app], ['click 120 580 right', 'print-menu'])
+        self.assertIn('New File', out)
+        self.assertNotIn('Add Folder to Workspace', out)
+
+    def select_new_workspace_folder(self):
+        return ['cmd add_workspace_folder', 'key ctrl+a', f'type {self.lib}/', 'key Return']
+
+    def test_first_save_cancel_or_failure_never_adds(self):
+        self.workspace_ui()
+        for steps in (['cmd add_workspace_folder'], self.select_new_workspace_folder(),
+                      self.select_new_workspace_folder()+['key Return']):
+            with self.subTest(steps=steps):
+                out = self.run_ws([self.app], [*steps, 'key Escape',
+                    'print-palette', 'print-workspace', 'print-folders'])
+                self.assertIn('none', out)
+                self.assertIn('workspace= title=proj', out)
+                self.assertEqual(len(self.folders(out)), 1)
+                self.assertFalse(list(self.app.glob('*.rhun-workspace')))
+        out = self.run_ws([self.app], [*self.select_new_workspace_folder(), 'key Return',
+            'key ctrl+a', f'type {self.work}/missing/team', 'key Return',
+            'print-palette', 'print-toast', 'print-workspace', 'print-folders'])
+        self.assertIn('none', out)
+        self.assertIn('toast=The workspace file could not be written', out)
+        self.assertIn('workspace= title=proj', out)
+        self.assertEqual(len(self.folders(out)), 1)
+        out = self.run_ws([self.app], ['print-folders'])
+        self.assertEqual(len(self.folders(out)), 1)
+
+    def test_save_destination_can_be_outside_the_project(self):
+        destination = self.work / 'workspace-files'
+        destination.mkdir()
+        wsfile = destination / 'team.rhun-workspace'
+        out = self.run_ws([self.app], [*self.select_new_workspace_folder(), 'key ctrl+a',
+            f'type {destination}/', 'key Return', 'print-palette', 'key ctrl+a',
+            f'type {wsfile}', 'key Return', 'print-folders', 'print-workspace'])
+        self.assertIn(f'field={destination}/proj.rhun-workspace', out)
+        self.assertIn(f'workspace={wsfile} title=team', out)
+        self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'lib'])
+        self.assertIn(f'path = {self.app}', wsfile.read_text())
+        self.assertIn(f'path = {self.lib}', wsfile.read_text())
+
+    def test_invalid_folder_does_not_ask_for_a_save_destination(self):
+        out = self.run_ws([self.app], ['cmd add_workspace_folder', 'key Return',
+            'print-palette', 'print-toast', 'print-folders'])
+        self.assertIn('none', out)
+        self.assertIn('toast=That folder is in the workspace already', out)
+        self.assertFalse(any(l.startswith('> Save Workspace in ') for l in out))
+        self.assertEqual(len(self.folders(out)), 1)
+
+    def test_existing_project_workspace_is_reused(self):
+        self.workspace_ui()
+        wsfile = self.app / 'team.rhun-workspace'
+        wsfile.write_text(f'[folders]\npath = .\npath = {self.lib}\n\n[rt/x]\nsetting.k = 1\n')
+        other = self.work / 'other'
+        other.mkdir()
+        out = self.run_ws([self.app], ['cmd add_workspace_folder', 'print-palette',
+            'key ctrl+a', f'type {other}/', 'key Return', 'print-folders', 'print-workspace'])
+        self.assertFalse(any(l.startswith('prompt=') for l in out), out)
+        self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'lib', 'other'])
+        self.assertIn(f'workspace={wsfile} title=team', out)
+        saved = wsfile.read_text()
+        self.assertIn(f'path = {other}', saved)
+        self.assertIn('[rt/x]\nsetting.k = 1', saved)
+
+    def test_unrelated_definition_is_not_opened_by_add(self):
+        wsfile = self.app / 'unrelated.rhun-workspace'
+        original = f'[folders]\npath = {self.lib}\n'
+        wsfile.write_text(original)
+        out = self.run_ws([self.app], [*self.select_new_workspace_folder(), 'print-palette',
+            'key Escape', 'print-folders', 'print-workspace'])
+        self.assertTrue(any(l.startswith('> Save Workspace in ') for l in out), out)
+        self.assertEqual([f['name'] for f in self.folders(out)], ['proj'])
+        self.assertEqual(wsfile.read_text(), original)
+
+    def test_workspace_root_menu_removes_only_the_selected_root(self):
+        self.workspace_ui()
+        wsfile = self.app / 'team.rhun-workspace'
+        wsfile.write_text(f'[folders]\npath = .\npath = {self.lib}\n\n[rt/x]\nsetting.k = 1\n')
+        # Four primary children and then lib; the workspace file is a fifth child.
+        out = self.run_ws([wsfile], ['click 60 250 right', 'print-menu',
+            'menu-pick Remove Folder from Workspace', 'print-folders', 'print-workspace',
+            'click 60 90 right', 'print-menu'])
+        self.assertIn('Remove Folder from Workspace', out)
+        self.assertEqual([f['name'] for f in self.folders(out)], ['proj'], out)
+        self.assertTrue((self.lib / 'pkg/p.go').exists())
+        self.assertNotIn(f'path = {self.lib}', wsfile.read_text())
+        self.assertIn('[rt/x]\nsetting.k = 1', wsfile.read_text())
+        self.assertIn(f'workspace={wsfile} title=team', out)
+        # The remaining root remains a first-level row.
+        self.assertEqual(out.count('Remove Folder from Workspace'), 2, out)
+
+    def test_primary_removal_keeps_workspace_and_updates_definition(self):
+        wsfile = self.app / 'team.rhun-workspace'
+        wsfile.write_text(f'[folders]\npath = .\npath = {self.lib}\n\n[rt/x]\nsetting.k = 1\n')
+        out = self.run_ws([wsfile], ['folder-remove 1', 'wait 200',
+            'print-folders', 'print-workspace'])
+        self.assertEqual([f['name'] for f in self.folders(out)], ['lib'])
+        self.assertIn(f'workspace={wsfile} title=team', out)
+        saved = wsfile.read_text()
+        self.assertNotIn('path = .\n', saved)
+        self.assertIn(f'path = {self.lib}', saved)
+        self.assertIn('[rt/x]\nsetting.k = 1', saved)
+        self.assertTrue(self.app.is_dir())
+
+    def test_cancelled_primary_removal_preserves_definition_and_next_switch(self):
+        wsfile = self.app / 'team.rhun-workspace'
+        original = f'[folders]\npath = .\npath = {self.lib}\n'
+        wsfile.write_text(original)
+        other = self.work / 'other'
+        other.mkdir()
+        out = self.run_ws([wsfile], [f'open {self.app}/a.txt', 'type x',
+            'folder-remove 1', 'key Escape', 'print-folders', 'print-workspace',
+            'cmd save', f'open {other}', 'print-workspace', 'print-folders'])
+        self.assertEqual(wsfile.read_text(), original)
+        self.assertIn(f'workspace={wsfile} title=team', out)
+        self.assertIn('workspace= title=other', out)
+        self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'lib', 'other'])
+
     # ---------------- extensions ----------------
 
     def test_folders_event_and_folder_of(self):

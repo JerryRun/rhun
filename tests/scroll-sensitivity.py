@@ -44,14 +44,42 @@ class ScrollSensitivity(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         return result.stdout.decode('utf-8')
 
-    def scroll_offset(self, scroll_cmd, extra=''):
-        self.config.write_text(CONFIG.format(extra=extra), encoding='utf-8')
+    def scroll_offset(self, scroll_cmd, extra='', editor_extra=''):
+        self.config.write_text(CONFIG.format(extra=extra) + '[editor]\n' + editor_extra,
+                               encoding='utf-8')
         commands = scroll_cmd if isinstance(scroll_cmd, list) else [scroll_cmd]
         out = self.run_editor(['wait 200', 'move 500 400', *commands, 'wait 60', 'print-scroll'])
         return int(dict(part.split('=') for part in out.split())['y'])
 
     def test_default_scrolls(self):
         self.assertGreater(self.scroll_offset('scroll 600'), 0)
+
+    def test_editor_default_is_half_previous_speed(self):
+        default = self.scroll_offset('scroll 600')
+        previous = self.scroll_offset('scroll 600', editor_extra='scroll_sensitivity=1\n')
+        self.assertAlmostEqual(default/previous, .5, delta=.02)
+
+    def test_editor_sensitivity_changes_independently(self):
+        base = self.scroll_offset('scroll 600')
+        slower = self.scroll_offset('scroll 600', editor_extra='scroll_sensitivity=0.2\n')
+        self.assertAlmostEqual(slower/base, .4, delta=.02)
+
+    def test_editor_small_steps_add_up(self):
+        small = self.scroll_offset(['scroll 1'] * 120)
+        combined = self.scroll_offset('scroll 120')
+        self.assertAlmostEqual(small/combined, 1, delta=.05)
+
+    def test_wrapped_editor_uses_same_smaller_step(self):
+        # Wrapped print-scroll reports whole source lines, so use a delta large enough that
+        # line rounding does not obscure the multiplier.
+        default = self.scroll_offset('scroll 600', editor_extra='word_wrap=true\n')
+        previous = self.scroll_offset('scroll 600',
+            editor_extra='word_wrap=true\nscroll_sensitivity=1\n')
+        self.assertAlmostEqual(default/previous, .5, delta=.05)
+
+    def test_reverse_steps_return_to_start(self):
+        offset = self.scroll_offset(['scroll 1']*120 + ['scroll -1']*120)
+        self.assertEqual(offset, 0)
 
     def test_sensitivity_scales_the_delta(self):
         base = self.scroll_offset('scroll 600')

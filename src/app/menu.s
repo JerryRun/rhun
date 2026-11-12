@@ -965,7 +965,46 @@ mn_build:
     call mn_push
     add rbx, 16
     jmp 1b
-2:  mov edi, [rsp]
+2:  # Native Markdown actions use the menu target, including inactive Explorer files.
+    mov eax, [rsp]
+    cmp eax, MLOC_EDITOR
+    je 21f
+    cmp eax, MLOC_EXPLORER
+    jne 20f
+    mov rdi, [rip + mnt_cur]
+    mov rdi, [rdi + MTG_kind]
+    lea rsi, [rip + .Lk_file]
+    call strcmp_eq
+    test eax, eax
+    jnz 21f
+    jmp 22f
+20: mov eax, [rsp]
+    cmp eax, MLOC_TAB
+    jne 22f
+21: mov rdi, [rip + mnt_cur]
+    mov rdi, [rdi + MTG_path]
+    call mdpreview_is_markdown
+    test eax, eax
+    jz 22f
+    lea rdi, [rip + .Lline]
+    xor esi, esi
+    xor edx, edx
+    xor ecx, ecx
+    xor r8d, r8d
+    call mn_push
+    lea rdi, [rip + .Lmd_preview]
+    lea rsi, [rip + menu_md_preview]
+    xor edx, edx
+    xor ecx, ecx
+    xor r8d, r8d
+    call mn_push
+    lea rdi, [rip + .Lmd_preview_side]
+    lea rsi, [rip + menu_md_preview_side]
+    xor edx, edx
+    xor ecx, ecx
+    xor r8d, r8d
+    call mn_push
+22: mov edi, [rsp]
     mov rsi, r12
     mov rdx, r13
     call mn_collect
@@ -1067,6 +1106,15 @@ mn_show:
 9:  EPILOGUE
 
 # ---------------------------------------------------------------- running a row
+
+menu_md_preview:
+    xor esi, esi
+    jmp menu_md_open
+menu_md_preview_side:
+    mov esi, 1
+menu_md_open:
+    lea rdi, [rip + mnt_menu + MNT_path]
+    jmp mdpreview_open_path
 
 # menu_run_row(): the clicked item's command, FROM menu, the body "TARGET" LF ARGS, about the
 #   target's document; a command gone meanwhile toasts
@@ -2186,6 +2234,8 @@ mi_fields: .quad .Lf_command, MI_cmd, .Lf_group, MI_group, .Lf_order, -1, .Lf_wh
 .Lchevron: .asciz " \342\200\272"
 .Lsettings: .asciz "Settings and details"
 .Lgone: .asciz "This command is no longer available"
+.Lmd_preview: .asciz "Open Preview"
+.Lmd_preview_side: .asciz "Open Preview to the Side"
 .Lsub_note: .asciz " >"
 .Lnote_open: .asciz " ["
 .Lnote_close: .asciz "]"

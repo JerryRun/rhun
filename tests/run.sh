@@ -89,7 +89,18 @@ check syntax build/syntax_test
 check syntax-word build/grammar_test --try tests/data/region-word.syn tests/data/region-word.txt
 check themes build/theme_test
 check term build/term_test
+check terminal-cwd build/terminal-cwd-test
 check diff build/diff_test
+check side-alignment build/side_alignment_test
+if [ "$(uname -s)" = Linux ]; then check ime build/ime_test; fi
+python3 tests/side-diff.py || fail=1
+python3 tests/terminal-splits.py || fail=1
+python3 tests/markdown-preview.py || fail=1
+if [ "$(uname -s)" = Linux ]; then
+    python3 tests/git-auth.py || fail=1
+    python3 tests/wsl-input.py || fail=1
+    python3 tests/wsl-window.py || fail=1
+fi
 # debugger: the JSON builder and parser
 check json build/json_test
 check images build/image_test $(ls tests/data/images/* | LC_ALL=C sort)

@@ -2335,8 +2335,7 @@ draw_file:
     cmp byte ptr [rsi + rax - 1], '/'
     je 9f
     mov rdx, rax
-    xor edi, edi
-    call git_open_diff
+    call git_open_changes
 9:  EPILOGUE
 # file_button(id, x, -, -, -, icon) -> 1 when clicked: an icon button on the row at r13d
 file_button:

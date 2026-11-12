@@ -81,7 +81,7 @@ class SettingsSearch(unittest.TestCase):
     def test_words_not_scattered_letters(self):
         # "font" once kept Explorer width ("of the file explorer in points") and the like
         self.assertEqual(self.rows('type font'), [
-            'ui.font_size', 'ui.font', 'editor.font_size', 'editor.font', 'editor.line_height',
+            'ui.font_size', 'ui.font', 'editor.font_size', 'editor.font', 'editor.fallback_font', 'editor.line_height',
             'terminal.font_size', 'terminal.font', 'terminal.line_height'])
         self.assertEqual(self.rows('type terminal font'),
                          ['terminal.font_size', 'terminal.font', 'terminal.line_height'])
@@ -103,6 +103,24 @@ class SettingsSearch(unittest.TestCase):
 
     def test_no_match(self):
         self.assertEqual(self.rows('type zzzzz'), [])
+
+    def test_chinese_hotkey_is_searchable(self):
+        for query in ('hotkey', 'chinese_toggle_key', '中英文切换', '输入法', '快捷键'):
+            with self.subTest(query=query):
+                self.assertEqual(self.rows('type '+query), ['editor.chinese_toggle_key'])
+
+    def test_header_link_reveals_and_edits_hotkey(self):
+        out = self.run_editor(['cmd settings', 'click 750 128', 'print-settings',
+            'click 750 348', 'key ctrl+a', 'type ctrl+alt+p', 'key Return',
+            'print-keys'])
+        self.assertIn('editor.chinese_toggle_key', out)
+        self.assertNotIn('ui.theme', out)
+        self.assertIn('chinese_toggle_key = ctrl+alt+p', self.vim_mode())
+
+    def test_header_link_works_in_narrow_window(self):
+        out = self.run_editor(['cmd settings', 'click 360 128', 'print-settings'],
+                              size='480x700')
+        self.assertEqual(out.split(), ['editor.chinese_toggle_key'])
 
     def test_escape_clears_then_leaves(self):
         everything = self.rows()

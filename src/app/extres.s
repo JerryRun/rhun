@@ -1579,6 +1579,7 @@ res_commands:   # headless commands of the group (control.s ctl_tables): fn(out,
     .quad .Lc_print_file_runs, c_print_file_runs
     .quad .Lc_print_ext_setting, c_print_ext_setting
     .quad .Lc_print_folders, c_print_folders, .Lc_folder_add, c_folder_add
+    .quad .Lc_print_workspace, c_print_workspace
     .quad .Lc_folder_remove, c_folder_remove, .Lc_workspace_save, c_workspace_save
     .quad .Lc_print_repos, c_print_repos, .Lc_repo_show, c_repo_show
     .quad 0, 0
@@ -1607,6 +1608,7 @@ res_commands:   # headless commands of the group (control.s ctl_tables): fn(out,
 .Lc_print_file_runs: .asciz "print-file-runs"
 .Lc_print_ext_setting: .asciz "print-ext-setting"
 .Lc_print_folders: .asciz "print-folders"
+.Lc_print_workspace: .asciz "print-workspace"
 .Lc_folder_add: .asciz "folder-add"
 .Lc_folder_remove: .asciz "folder-remove"
 .Lc_workspace_save: .asciz "workspace-save"

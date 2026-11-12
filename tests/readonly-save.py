@@ -199,7 +199,9 @@ class ReadOnlySave(unittest.TestCase):
         git('init', '-q')
         git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'add', 'other.txt')
         git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'one')
-        self.other.write_bytes(b'other changed\n')
+        # Deleted files use the read-only unified diff fallback. Existing text files now open
+        # editable changes in their source tab; that mode is covered by side-diff.py.
+        self.other.unlink()
         self.config.write_text(CONFIG.replace('[git]\nenabled = false\n', '[git]\nenabled = true\n'),
                                encoding='utf-8')
         lines = self.run_editor([self.work, self.other], [

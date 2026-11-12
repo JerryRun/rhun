@@ -53,6 +53,17 @@ id_cursor_mgr: .long 0
 id_viewporter: .long 0
 id_fscale_mgr: .long 0
 id_activation: .long 0
+.globl wl_ime_id, wl_ime_entered
+id_text_manager: .long 0
+wl_ime_id: .long 0
+wl_ime_entered: .long 0
+ime_requested: .long 0
+ime_focus: .long 0
+ime_serial: .long 0
+ime_floor: .long 0
+.p2align 3
+ime_target: .quad 0
+ime_rect: .zero 12
 activation_sent: .long 0
 id_sync: .long 0
 sync_done: .long 0
@@ -91,6 +102,7 @@ pend_states: .long 0
 win_w: .long 0             # logical
 win_h: .long 0
 scale120: .long 0          # fractional scale * 120, 0 if unused
+window_trace: .long 0           # RHUN_TRACE_WINDOW: opt-in configure / maximize diagnostics
 .globl g_win_states
 g_win_states: .long 0      # bit0 maximized, bit1 fullscreen, bit2 activated, bit3 tiled
 
@@ -631,6 +643,8 @@ FN wl_dispatch
     je .Ld_pointer
     cmp ebx, [rip + id_keyboard]
     je .Ld_keyboard
+    cmp ebx, [rip + wl_ime_id]
+    je .Ld_text_input
     cmp ebx, [rip + id_seat]
     je .Ld_seat
     cmp ebx, [rip + id_fscale]
@@ -866,6 +880,13 @@ FN wl_dispatch
     mov rdi, r12
     mov rsi, r13
     call on_keyboard
+    jmp .Ld_ret
+
+.Ld_text_input:
+    mov edi, r12d
+    mov rsi, r13
+    mov rdx, r14
+    call wl_ime_event
     jmp .Ld_ret
 
 .Ld_ddev:
@@ -1115,7 +1136,26 @@ logical_to_phys:
 1:  imul eax, [rip + int_scale]
     ret
 
+wl_trace_configure:
+    cmp dword ptr [rip + window_trace], 0
+    je 9f
+    PROLOGUE
+    lea rdi, [rip + .Ltrace_config]
+    call log_cstr
+    mov edi, [rip + pend_w]
+    call log_u64
+    call log_nl
+    mov edi, [rip + pend_h]
+    call log_u64
+    call log_nl
+    mov edi, [rip + pend_states]
+    call log_u64
+    call log_nl
+    EPILOGUE
+9:  ret
+
 apply_configure:
+    call wl_trace_configure
     mov r8d, [rip + g_win_states]
     and r8d, 11                # restore normal size when leaving maximized/fullscreen/tiled
     mov eax, [rip + pend_states]
@@ -1301,6 +1341,7 @@ wl_draw:
     call gfx_set_target
     mov dword ptr [rip + g_dirty], 0
     call app_render
+    call wl_ime_sync
     lea rcx, [rip + buf_busy]
     mov dword ptr [rcx + rbx*4], 1
     lea rcx, [rip + id_buf]
@@ -1328,6 +1369,8 @@ wl_draw:
     EPILOGUE
 
 # ---------------- input ----------------
+
+.include "plat/wayland-ime.inc"
 
 # fixed 24.8 logical -> physical int
 fixed_to_phys:
@@ -1378,6 +1421,8 @@ on_pointer:
     call send_motion
     jmp .Lp_ret
 .Lp_leave:
+    cmp dword ptr [rip + wsl_window_native], 0
+    jne .Lp_ret
     call app_on_pointer_leave
     jmp .Lp_ret
 .Lp_motion:
@@ -1391,6 +1436,8 @@ on_pointer:
     mov eax, [r12]
     mov [rip + last_serial], eax
     mov dword ptr [rip + last_serial_known], 1
+    cmp dword ptr [rip + wsl_window_native], 0
+    jne .Lp_ret
     mov eax, [r12 + 8]            # linux button code
     mov edi, BTN_LEFT
     cmp eax, 0x110
@@ -1406,6 +1453,8 @@ on_pointer:
     call app_on_button
     jmp .Lp_ret
 .Lp_axis:
+    cmp dword ptr [rip + wsl_window_native], 0
+    jne .Lp_ret
     # in 1/(256 * 120) physical pixels: the wheel scrolls ~3 lines a notch, a touchpad 3x the
     # finger's travel, and what falls short of a pixel carries to the next event
     movsxd rax, dword ptr [r12 + 8]   # fixed 24.8 logical
@@ -1450,6 +1499,8 @@ on_pointer:
     ret
 
 send_motion:
+    cmp dword ptr [rip + wsl_window_native], 0
+    jne 9f
     push rbx
     mov edi, [rip + ptr_x]
     call fixed_to_phys
@@ -1460,6 +1511,7 @@ send_motion:
     mov esi, eax
     call app_on_motion
     pop rbx
+9:
     ret
 
 # on_keyboard(opcode, args)
@@ -1539,6 +1591,9 @@ on_keyboard:
     # press: arm repeat for non-modifier keys
     mov [rsp], edi
     call key_emit
+    call ime_has_preedit
+    test rax, rax
+    jnz .Lk_ret
     mov edi, [rsp]
     call is_modifier_key
     test eax, eax
@@ -1585,6 +1640,17 @@ on_keyboard:
 
 # key_emit(xkb keycode)
 key_emit:
+    cmp dword ptr [rip + wl_ime_entered], 0
+    je .Lime_physical
+    test dword ptr [rip + kb_mods], MOD_CTRL | MOD_ALT | MOD_SUPER
+    jnz .Lime_physical
+    push rdi
+    call ime_has_preedit
+    pop rdi
+    test rax, rax
+    jz .Lime_physical
+    ret
+.Lime_physical:
     push rbx
     push r12
     push r13
@@ -1978,6 +2044,7 @@ wl_tick:
     sub rsp, 8
     call wl_paste_tick
     call wl_send_tick
+    call wl_ime_sync
     call wl_repeat_tick
     add rsp, 8
     ret
@@ -2046,6 +2113,16 @@ wl_minimize:
     ret
 
 wl_maximize:
+    cmp dword ptr [rip + window_trace], 0
+    je 8f
+    sub rsp, 8
+    lea rdi, [rip + .Ltrace_max]
+    call log_cstr
+    mov edi, [rip + g_win_states]
+    call log_u64
+    call log_nl
+    add rsp, 8
+8:
     mov esi, 9
     test dword ptr [rip + g_win_states], 1
     jz 1f
@@ -2056,6 +2133,8 @@ wl_maximize:
 
 wl_title:
     push rbx
+    call wsl_window_title
+    mov rdi, rax
     mov rbx, rdi
     MSG [rip + id_toplevel], 2
     mov rdi, rbx
@@ -3069,6 +3148,14 @@ wl_activate:
 FN wl_open_window
     PROLOGUE 16
     mov rbx, rdi
+    call wsl_window_start
+    mov rdi, rbx
+    call wsl_window_title
+    mov rbx, rax
+    lea rdi, [rip + .Lenv_window_trace]
+    call getenv
+    test rax, rax
+    setnz byte ptr [rip + window_trace]
     mov dword ptr [rip + wl_normal + WPOS_magic], WPOS_MAGIC
     mov dword ptr [rip + wl_normal + WPOS_w], 1280
     mov dword ptr [rip + wl_normal + WPOS_h], 820
@@ -3215,6 +3302,7 @@ global_table:
     .quad .Li_viewporter, id_viewporter, 1
     .quad .Li_fscale, id_fscale_mgr, 1
     .quad .Li_activation, id_activation, 1
+    .quad .Li_text_input, id_text_manager, 1
     .quad 0, 0, 0
 .Li_compositor: .asciz "wl_compositor"
 .Li_shm: .asciz "wl_shm"
@@ -3226,6 +3314,7 @@ global_table:
 .Li_viewporter: .asciz "wp_viewporter"
 .Li_fscale: .asciz "wp_fractional_scale_manager_v1"
 .Li_activation: .asciz "xdg_activation_v1"
+.Li_text_input: .asciz "zwp_text_input_manager_v1"
 .p2align 3
 .Ltiling: .quad .Lt_hypr, .Lt_sway, .Lt_niri, .Lt_river, .Lt_dwl, .Lt_qtile, 0
 .Lt_hypr: .asciz "Hyprland"
@@ -3251,6 +3340,9 @@ global_table:
 .Ldisconnected: .asciz "rhun: wayland connection closed"
 .Lsend_err: .asciz "rhun: wayland send failed"
 .Lshm_err: .asciz "rhun: shm buffer allocation failed"
+.Lenv_window_trace: .asciz "RHUN_TRACE_WINDOW"
+.Ltrace_max: .asciz "wayland maximize: previous states="
+.Ltrace_config: .asciz "wayland configure: width height states="
 # CUR_* -> wp_cursor_shape_device_v1 shapes
 cursor_shapes: .byte 1, 9, 4, 26, 27, 29, 28, 1
 .p2align 2

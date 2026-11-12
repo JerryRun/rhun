@@ -13,6 +13,9 @@ job() {
 }
 echo '.section .rodata'
 emit commit_ai_script runtime/ai/commit.sh
+emit wsl_input_script runtime/windows/wsl-input.ps1
+emit wsl_window_script runtime/windows/wsl-window.ps1
+emit fcitx_client_script runtime/ime/fcitx-client.py
 # background jobs on Linux and macOS (Windows has runtime/windows/*.ps1): downloads and archives
 # (runtime/jobs/archive.sh) shared by Install from GitHub, New Extension and Submit to Index
 job install_script runtime/jobs/archive.sh runtime/jobs/extinstall.sh

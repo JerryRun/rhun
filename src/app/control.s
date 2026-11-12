@@ -548,6 +548,12 @@ c_print_settings:
     xor eax, eax
     ret
 
+c_print_md_preview:
+    lea rdi, [rip + out]
+    call mdpreview_dump
+    xor eax, eax
+    ret
+
 # print-scroll: "x=PX y=N max=PX track=X,Y,W,H", the editor's scroll (y in 1/256 lines)
 c_print_scroll:
     lea rdi, [rip + out]
@@ -2366,6 +2372,7 @@ sev_words: .quad .Lsw_error, .Lsw_warning, .Lsw_info, .Lsw_hint
 .Lc_print_link: .asciz "print-link"
 .Lc_print_scroll: .asciz "print-scroll"
 .Lc_print_settings: .asciz "print-settings"
+.Lc_print_md_preview: .asciz "print-md-preview"
 .Lc_scroll_x: .asciz "scroll-x"
 .Lc_appearance: .asciz "appearance"
 .Lc_focus: .asciz "focus"
@@ -2441,6 +2448,7 @@ ctl_table:
     .quad .Lc_print_tip, c_print_tip, .Lc_print_toast, c_print_toast, .Lc_print_link, c_print_link
     .quad .Lc_print_term_cell, c_print_term_cell, .Lc_print_scroll, c_print_scroll
     .quad .Lc_print_settings, c_print_settings
+    .quad .Lc_print_md_preview, c_print_md_preview
     .quad .Lc_scroll_x, c_scroll_x
     .quad .Lc_appearance, c_appearance, .Lc_print_appearance, c_print_appearance
     .quad .Lc_print_ext_budget, c_print_ext_budget

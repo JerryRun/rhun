@@ -804,6 +804,11 @@ keys_build:
     je 2f
     mov rdi, rbx
     mov rsi, [rbx + CMD_keys]
+    lea rax, [rip + cmd_toggle_chinese]
+    cmp [rbx + CMD_fn], rax
+    jne 11f
+    mov rsi, [rip + cfg_chinese_toggle_key]
+11:
     mov edx, KRANK_BUILTIN
     xor ecx, ecx
     call kb_default_list
@@ -2208,6 +2213,12 @@ g_commands:
     COMMAND keyboard_shortcuts, "Keyboard Shortcuts", cmd_keyboard_shortcuts, ""
     COMMAND select_file_icon_theme, "Select File Icon Theme", cmd_select_file_icon_theme, ""
     COMMAND new_file, "New File", cmd_new_file, "ctrl+n"
+    COMMAND toggle_side_diff, "Git: Toggle Side-by-Side Comparison", cmd_toggle_side_diff, ""
+    COMMAND toggle_chinese, "Input: Toggle Chinese Pinyin", cmd_toggle_chinese, "ctrl+alt+space"
+    COMMAND markdown_preview, "Markdown: Open Preview", cmd_markdown_preview, ""
+    COMMAND markdown_preview_side, "Markdown: Open Preview to the Side", cmd_markdown_preview_side, ""
+    COMMAND markdown_preview_close, "Markdown: Close Side Preview", cmd_markdown_preview_close, ""
+    COMMAND input_chinese, "Input: Chinese via Windows IME (WSL)", cmd_input_chinese, "ctrl+alt+i"
     COMMAND save, "Save", cmd_save, "ctrl+s"
     COMMAND save_without_formatting, "Save Without Formatting", cmd_save_without_formatting, ""
     COMMAND cancel_save, "Cancel Save", cmd_cancel_save, ""
@@ -2354,6 +2365,10 @@ g_commands:
     COMMAND submit_extension, "Extensions: Submit to Index\342\200\246", cmd_submit_extension, ""
     COMMAND new_terminal, "New Terminal", cmd_new_terminal, "ctrl+shift+` ctrl+shift+~"
     # tasks and terminals
+    COMMAND split_terminal_right, "Terminal: Split Right", cmd_split_terminal_right, "ctrl+alt+l"
+    COMMAND split_terminal_down, "Terminal: Split Down", cmd_split_terminal_down, "ctrl+alt+j"
+    COMMAND next_terminal_pane, "Terminal: Focus Next Pane", cmd_next_terminal_pane, "ctrl+alt+n"
+    COMMAND unsplit_terminal, "Terminal: Show Active Pane Only", cmd_unsplit_terminal, ""
     COMMAND toggle_problems, "Toggle Problems", cmd_toggle_problems, "ctrl+shift+m"
     COMMAND run_task, "Run Task", cmd_run_task, ""
     COMMAND run_build_task, "Run Build Task", cmd_run_build_task, "ctrl+shift+b"

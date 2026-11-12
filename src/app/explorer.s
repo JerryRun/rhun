@@ -439,7 +439,9 @@ FN explorer_set_root
     call wfold_count            # resources group: two workspace folders or more are roots of their own
     cmp eax, 2
     jae .Lsr_folders
-    mov rdi, rsi
+    cmp qword ptr [rip + g_ws_file], 0
+    jne .Lsr_folders            # a named workspace shows its remaining folder as a root too
+    mov rdi, [rip + g_project]
     call strlen
     mov rdi, [rip + g_project]
     mov rsi, rax
@@ -1530,6 +1532,31 @@ root_menu_open:
     lea rdi, [rip + g_explorer_dir]
     call cstr_copy
     lea rdi, [rip + menu_items_root]
+    cmp qword ptr [rip + g_ws_file], 0
+    jne 1f
+    mov rdi, [rip + g_project]
+    call git_find_repo
+    test rax, rax
+    jz 2f
+    mov rbx, rdx
+    mov rdi, rax
+    call mem_free
+    mov rdi, rbx
+    mov rsi, [rip + g_project]
+.ifdef WINDOWS
+    call win_path_equal
+.else
+    call strcmp_eq
+.endif
+    mov r12d, eax
+    mov rdi, rbx
+    call mem_free
+    test r12d, r12d
+    jz 2f
+1:  lea rdi, [rip + menu_items_root_workspace]
+    jmp 3f
+2:  lea rdi, [rip + menu_items_root]
+3:
     call menu_open_root         # with the extensions' items (menu.s)
 9:  EPILOGUE
 
@@ -1934,6 +1961,7 @@ FN menu_print
 
 .section .rodata
 .Lm_remove_folder: .asciz "Remove Folder from Workspace"
+.Lm_add_folder: .asciz "Add Folder to Workspace"
 .Lempty_name: .asciz ""
 .Lheader: .asciz "EXPLORER"
 .ifdef MACOS
@@ -1975,6 +2003,9 @@ menu_items_git:
 menu_items_root:
     .quad .Lm1, cmd_new_file_prompt, .Lm2, cmd_new_folder, .Lm5, copy_project_path
     .quad .Lm_reveal, reveal_project, 0, 0
+menu_items_root_workspace:
+    .quad .Lm1, cmd_new_file_prompt, .Lm2, cmd_new_folder, .Lm5, copy_project_path
+    .quad .Lm_reveal, reveal_project, .Lm_add_folder, cmd_add_workspace_folder, 0, 0
 menu_items_folder:              # resources group: a workspace folder's row
     .quad .Lm1, cmd_new_file_prompt, .Lm2, cmd_new_folder, .Lm5, cmd_copy_path
     .quad .Lm_reveal, cmd_reveal_file, .Lm_remove_folder, cmd_remove_workspace_folder, 0, 0

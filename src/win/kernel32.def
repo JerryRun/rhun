@@ -55,6 +55,7 @@ EXPORTS
     OpenProcess
     PeekNamedPipe
     ReadFile
+    ReadProcessMemory
     RemoveDirectoryW
     ReplaceFileW
     ResizePseudoConsole

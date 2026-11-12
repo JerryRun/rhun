@@ -613,6 +613,8 @@ F DOC_version, 8
 F DOC_sold, 8           # syntax states were valid below this line before the last edits
 F DOC_ehi, 8            # highest line touched by edits since then
 F DOC_ghash, 8          # git: hashes of its lines
+F DOC_gbase, 8          # normalized HEAD document, owned (side-by-side comparison)
+F DOC_side, 8           # owned cached alignment; no synthetic edits in the working document
 F DOC_gnl, 8            # git: their count
 F DOC_gmarks, 8         # git: GM_* per line
 F DOC_gmcap, 8
@@ -663,6 +665,7 @@ F DOC_nb, 8             # notebooks: the NB a TAB_NOTEBOOK tab's document stands
 F DOC_ce, 8             # custom editors: the CE whose tab shows this document, or 0 (customed.s)
 F DOC_pres, 8           # editor presentation: PRS* (edtape.s), owned, or 0
 F DOC_uri, 8            # resources group: a virtual document's URI (owned; vdoc.s), or 0
+F DOC_mdpreview, 8      # owned native Markdown file preview state, or 0
 ENDSTRUCT DOC_SIZE
 .equ DL_AUTO, 0
 .equ DL_PLAIN, 1
@@ -1159,6 +1162,11 @@ ENDSTRUCT MK_SIZE
 # return 0 at once when the document is read-only: g_doc, or the one in reg
 .macro READONLY_RET reg=0
 .ifc \reg,0
+    cmp dword ptr [rip + g_focus], FOCUS_MD_PREVIEW
+    jne .Lro_preview\@
+    xor eax, eax
+    ret
+.Lro_preview\@:
     push rax
     mov rax, [rip + g_doc]
     test rax, rax
@@ -1863,6 +1871,7 @@ ENDSTRUCT PIC_SIZE
 .equ TAB_GIT, 4
 .equ TAB_EXT, 5                 # the Extensions page (extpage.s)
 .equ TAB_VIEW, 6                # an extension's view (extview.s); TAB_flags >> TF_VIEW_SHIFT is its slot + 1
+.equ TAB_MD_PREVIEW, 7          # a standalone rendered Markdown file; DOC_mdpreview owns the view
 .equ TAB_NOTEBOOK, 120          # a notebook (nbview.s): TAB_doc is a DOC without text, DOC_nb its NB (notebooks' block 120-123)
 .equ TF_VIEW_SHIFT, 16
 .equ ID_VIEW, 0x7700            # + slot: a view's area
@@ -1881,6 +1890,8 @@ ENDSTRUCT TAB_SIZE
 .equ TF_PIN, 1                  # pinned: the pinned tabs are the first ones in the strip
 .equ TF_RVIEW, 2                # TAB_VIEW: a retained view's tab (rview.s); the slot field is its instance
 .equ TF_CUSTOM, 4               # custom editors: a TAB_VIEW tab that is an extension's editor of TAB_doc
+.equ TF_SIDE_DIFF, 8            # working-tree file opened from Git Changes
+.equ TF_MD_SIDE, 16             # source editor + live Markdown preview
 
 .equ SIDEBAR_W_DEFAULT, 240        # points: the explorer's and the agents panel's widths
 .equ AGENTS_W_DEFAULT, 380
@@ -1895,6 +1906,7 @@ ENDSTRUCT TAB_SIZE
 .equ FOCUS_PROMPT, 7
 .equ FOCUS_TERMINAL, 8
 .equ FOCUS_SCM, 9               # the commit message
+.equ FOCUS_MD_PREVIEW, 70       # native Markdown preview: selection, links, keyboard scrolling
 .equ FOCUS_AGENT_INPUT, 56      # AI (D4): the prompt box of an extension's agent session
 
 # grammar (syntax definition)
@@ -2792,6 +2804,7 @@ F TM_tabs, 8            # byte per column, 1 = tab stop
 F TM_out, SB_SIZE       # replies for the program
 F TM_str, SB_SIZE       # OSC string
 F TM_title, SB_SIZE
+F TM_cwd, SB_SIZE              # OSC 7: shell-reported current filesystem folder
 F TM_tap, 8             # SB* that each finished line goes to (tasks' matchers), or 0
 F TM_tapdrop, 8         # lines left out while the tap held 64 KB
 ENDSTRUCT TM_SIZE

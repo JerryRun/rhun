@@ -30,7 +30,7 @@ BOOLS = {
     'ui': 'follow_system sidebar agents_panel tooltips auto_hide_scrollbars',
     'editor': ('insert_spaces line_numbers highlight_line animate_disk_changes match_brackets '
                'indent_guides word_wrap whitespace cursor_blink smooth_caret auto_pairs '
-               'scroll_past_end vim_mode '
+               'scroll_past_end vim_mode side_diff '
                # language features
                'complete_replace complete_commit_characters lightbulb format_on_type format_on_paste '
                # editor presentation
@@ -49,6 +49,7 @@ INTS = {
     ('ui', 'sidebar_width'): (140, 600, 10), ('ui', 'agents_width'): (240, 900, 10),
     ('ui', 'scroll_sensitivity'): (.1, 10., .1), ('ui', 'fast_scroll_sensitivity'): (.1, 10., .1),
     ('editor', 'font_size'): (8, 40, 1), ('editor', 'line_height'): (1., 2.5, .05),
+    ('editor', 'scroll_sensitivity'): (.1, 2., .1),
     ('editor', 'tab_width'): (1, 16, 1), ('terminal', 'font_size'): (8, 40, 1),
     ('editor', 'inline_complete_delay'): (0, 2000, 50),
     ('terminal', 'line_height'): (1., 2.5, .05),
@@ -56,6 +57,8 @@ INTS = {
     ('debug', 'console_lines'): (1000, 100000, 1000),
 }
 STRINGS = {
+    ('editor', 'fallback_font'): 'missing fallback café.ttf',
+    ('editor', 'chinese_toggle_key'): 'ctrl+alt+p',
     ('ui', 'font'): 'missing font café.ttf', ('editor', 'font'): 'missing mono café.ttf',
     ('ui', 'file_icons'): 'someone/icons/missing',
     ('files', 'exclude'): '.git hidden café',

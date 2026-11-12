@@ -22,8 +22,41 @@ ol_n: .long 0
 ol_nc: .long 0
 .globl g_face_gen
 g_face_gen: .long 0             # counts face_init calls: what is drawn with faces is stale when it moves
+.p2align 3
+fb_custom: .quad 0
 
 .text
+
+# font_set_fallback(path): optional personal CJK face; the system list remains a fallback.
+FN font_set_fallback
+    PROLOGUE
+    mov r12, rdi
+    mov rbx, [rip + fb_custom]
+    mov qword ptr [rip + fb_custom], 0
+    test rbx, rbx
+    jz 1f
+    mov rdi, [rbx + FONT_data]
+    call mem_free
+    mov rdi, rbx
+    call mem_free
+1:  mov rdi, r12
+    test rdi, rdi
+    jz 9f
+    cmp byte ptr [rdi], 0
+    je 9f
+    call file_read_all
+    test rax, rax
+    jz 9f
+    mov r12, rax
+    mov rdi, rax
+    mov rsi, rdx
+    call font_load
+    mov [rip + fb_custom], rax
+    test rax, rax
+    jnz 9f
+    mov rdi, r12
+    call mem_free
+9:  EPILOGUE
 
 # font_load(ptr, len) -> FONT* or 0
 FN font_load
@@ -869,6 +902,17 @@ render_glyph:
 fallback_glyph:
     PROLOGUE 16
     mov r12d, edi
+    mov rdi, [rip + fb_custom]
+    test rdi, rdi
+    jz .Lfb_system
+    mov esi, r12d
+    call font_glyph_index
+    test eax, eax
+    jz .Lfb_system
+    mov edx, eax
+    mov rax, [rip + fb_custom]
+    EPILOGUE
+.Lfb_system:
     xor ebx, ebx
 1:  lea rax, [rip + fallback_paths]
     mov rdi, [rax + rbx*8]
@@ -1218,7 +1262,7 @@ fallback_paths:
 .Lfm3: .asciz "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
 .Lfm4: .asciz "/Library/Fonts/Arial Unicode.ttf"
 .else
-    .quad .Lfb1, .Lfb2, .Lfb3, .Lfb4, .Lfb5, .Lfb6, .Lfb7, .Lfb8, .Lfb9, 0
+    .quad .Lfb1, .Lfb2, .Lfb3, .Lfb4, .Lfb5, .Lfb6, .Lfb7, .Lfb8, .Lfb9, .Lfb_wsl, .Lfb_wsl2, 0
 .endif
 .endif
 .Lfb1: .asciz "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
@@ -1230,6 +1274,8 @@ fallback_paths:
 .Lfb7: .asciz "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf"
 .Lfb8: .asciz "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"
 .Lfb9: .asciz "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc"
+.Lfb_wsl: .asciz "/mnt/c/Windows/Fonts/msyh.ttc"
+.Lfb_wsl2: .asciz "/mnt/c/Windows/Fonts/simsun.ttc"
 .p2align 2
 xform_identity: .float 1.0, 0.0, 0.0, 1.0, 0.0, 0.0
 f_inv16384: .float 0.00006103515625

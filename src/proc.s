@@ -56,8 +56,7 @@ FN proc_cwd
     jmp mac_pid_cwd
 .else
 .ifdef WINDOWS
-    mov rax, -1
-    ret
+    jmp win_proc_cwd
 .else
     PROLOGUE 48
     mov r12, rsi

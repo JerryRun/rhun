@@ -397,16 +397,32 @@ Open Folder and Open File show a browser in the palette. It starts in the projec
 - A path can be typed or pasted, as in `/etc/` or `~/code/`. Hidden entries show once the name typed starts with a dot.
 - Open Folder lists only folders, led by **Open** and the folder shown, then **Open … in a new window**, which leaves this window as it is (on macOS the new window has a Dock icon of its own). Ctrl+Enter opens the selected folder without going into it.
 
-A window can hold several folders, a workspace. `rhun app lib` opens both; **Add Folder to
-Workspace…** (the project menu, or the palette) adds another, and **Remove Folder from Workspace**
-(a folder's menu in the explorer) takes one out. The first folder is the project: the window is named
-after the folders (`app + lib`), the explorer shows each folder as a root of its own, quick open and
-find in files list every folder's files with the folder's name first (`lib/pkg/p.go`), and a new
-terminal starts in the active file's folder. Folders cannot be inside one another, and a window has
-16 at most. The folders added to a project come back the next time it is opened. **Save Workspace
-As** writes `NAME.rhun-workspace`, which names the folders (and can hold settings for extensions);
-opening that file, from the command line or Open File, opens them all. Removing the first folder
-makes the next one the project.
+A window can hold several folders, a workspace. Each folder is a separate root in the explorer;
+quick open and find in files cover every root, and Git follows each root's own repository. Opening
+a plain parent directory does not recursively register its children's repositories. Folders cannot
+be inside one another, and a window has 16 at most. The first folder remains the primary project.
+
+Right-click empty space in the explorer of a Git project and choose **Add Folder to Workspace**.
+First select the project directory to add: Enter enters a directory, the leading **Add** row
+accepts the shown directory, and Ctrl+Enter accepts a selected directory directly. If there is
+no current or applicable workspace definition, a second directory picker asks where to save it.
+Choose **Save Workspace in ...**, then confirm the file name in **Save the workspace as**. The
+proposed file name is `PROJECT.rhun-workspace`. Cancelling either picker or the name prompt, or
+a failed write, leaves the workspace's folder membership unchanged. An existing definition in
+the project's own directory is reused when its first existing folder is the current project.
+Named workspaces add the selected folder directly. The title bar shows the workspace name.
+
+In a workspace, right-click a first-level folder and choose **Remove Folder from Workspace**.
+This removes its workspace membership; no files are deleted.
+At least one folder remains. Removing the primary makes the next folder the project; unsaved
+files are asked about first, and Cancel leaves the definition unchanged. Additions and removals
+update the named workspace file automatically, retaining its extension settings.
+
+The project menu and command palette also offer **Add Folder to Workspace**, and **Save Workspace
+As** saves another definition. Open a `.rhun-workspace` file through Open File or the command line
+to open all its folders. `rhun app lib` opens both without requiring a definition; such folders
+are remembered locally with the primary project. A new terminal starts in the active file's
+workspace root, or the primary if no file belongs to one.
 
 Each folder's git repository is followed: the explorer colors every folder's changes, and source
 control (the history's work tree row) starts with a line for each repository, with its branch and

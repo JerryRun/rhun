@@ -5,6 +5,7 @@
 .equ ID_SET_OPENFILE, 0x4f00
 .equ ID_SET_SCROLL, 0x4f01
 .equ ID_SET_SEARCH, 0x4f06        # 0x4f02-0x4f05: the links under the title
+.equ ID_SET_CHINESE, 0x4f07       # direct access to the private IME shortcut
 
 .data
 .p2align 3
@@ -138,6 +139,12 @@ FN setting_applied
     mov dword ptr [rip + g_settings_changed], 1
     mov dword ptr [rip + g_dirty], 1
     mov rax, [rbx + SET_ptr]
+    lea rcx, [rip + cfg_chinese_toggle_key]
+    cmp rax, rcx
+    jne 0f
+    call keys_reload
+    jmp 9f
+0:
     lea rcx, [rip + cfg_font]
     cmp rax, rcx
     je 1f
@@ -269,6 +276,15 @@ setting_match:
     call .Lsm_in
     test rax, rax
     jns .Lsm_word
+    # Search aliases do not belong in the visible English description.
+    lea rax, [rip + cfg_chinese_toggle_key]
+    cmp [rbx + SET_ptr], rax
+    jne 4f
+    lea rdi, [rip + .Lchinese_aliases]
+    call .Lsm_in
+    test rax, rax
+    jns .Lsm_word
+4:
     lea rdi, [rsp]
     mov rsi, [rsp + 128]
     call .Lsm_at
@@ -585,6 +601,33 @@ FN settings_draw
     lea r8, [rip + .Ltitle]
     COLOR r9d, T_FG
     call ui_text_c
+    # Keep the input hotkey discoverable without scrolling through Appearance settings.
+    mov edi, 220
+    call sc
+    mov ecx, [rsp + 16]
+    shr ecx, 1
+    cmp eax, ecx
+    cmovg eax, ecx
+    mov ecx, eax
+    mov esi, [rsp + 20]
+    add esi, [rsp + 16]
+    sub esi, ecx
+    mov edi, ID_SET_CHINESE
+    mov edx, r12d
+    lea r8, [rip + .Lchinese_hotkey]
+    call settings_link
+    test eax, UB_CLICK
+    jz 101f
+    call commit_edit
+    lea rdi, [rip + set_search]
+    lea rsi, [rip + .Lchinese_query]
+    mov edx, 18
+    call tf_set
+    mov dword ptr [rip + set_find], 1
+    mov dword ptr [rip + g_focus], FOCUS_SETTINGS
+    mov dword ptr [rip + set_scroll], 0
+    mov dword ptr [rip + g_dirty], 1
+101:
     add r12d, [rip + g_mt + 4*MI_40]
     # config file line (cut before the button) + button
     call config_path
@@ -1571,6 +1614,9 @@ FN ui_text_v_fit
 .section .rodata
 .Ltitle: .asciz "Settings"
 .Lsearch: .asciz "Search settings"
+.Lchinese_hotkey: .asciz "Chinese / English hotkey"
+.Lchinese_query: .asciz "chinese_toggle_key"
+.Lchinese_aliases: .asciz "中文 中英文切换 输入法 快捷键 热键"
 .Lno_match: .asciz "No settings match."
 .Lopen_file: .asciz "Open settings file"
 .Lbuiltin: .asciz "built-in"

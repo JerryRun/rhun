@@ -40,6 +40,9 @@ assign_all:
     lea rax, [rip + cfg_save_actions]
     cmp [rbx + SET_ptr], rax
     je 8f
+    lea rax, [rip + cfg_chinese_toggle_key]
+    cmp [rbx + SET_ptr], rax
+    je 8f                       # shortcut validation has dedicated UI/input tests
     mov rdi, rbx
     lea rsi, [rip + value]
     mov edx, 5

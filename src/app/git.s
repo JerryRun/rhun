@@ -72,6 +72,8 @@ logsdir: .quad 0
 refsdir: .quad 0
 git_bin: .quad 0
 env: .quad 0
+auth_env: .quad 0
+auth_extras: .zero 8 * 10
 jobs: .zero VEC_SIZE            # JB*
 stbuf: .zero SB_SIZE            # output of the last status
 stab: .quad 0                   # GE slots
@@ -811,8 +813,45 @@ run_git:
     mov qword ptr [rsp + rcx*8], 0
 2:  mov [rsp + 264], r14      # the input
     mov [rsp + 272], r15
+    # Interactive operations may ask the window, never an invisible terminal.
+    # Read-only status/diff jobs keep their original environment. Remote jobs
+    # cannot reach the local askpass socket.
+    cmp dword ptr [rsp + 256], 1
+    jne .Lgit_env_ready
+    cmp dword ptr [rip + g_remote], 0
+    jne .Lgit_env_ready
+    cmp qword ptr [rip + auth_env], 0
+    jne .Lgit_env_ready
+    call git_askpass_extras
+    mov rsi, rax
+    lea rdi, [rip + auth_extras]
+    xor ecx, ecx
+.Lgit_auth_copy:
+    mov rax, [rsi + rcx*8]
+    mov [rdi + rcx*8], rax
+    test rax, rax
+    jz .Lgit_auth_base
+    inc ecx
+    jmp .Lgit_auth_copy
+.Lgit_auth_base:
+    lea rax, [rip + .Lenv_locks]
+    mov [rdi + rcx*8], rax
+    lea rax, [rip + .Lenv_prompt]
+    mov [rdi + rcx*8 + 8], rax
+    lea rax, [rip + .Lenv_editor]
+    mov [rdi + rcx*8 + 16], rax
+    mov qword ptr [rdi + rcx*8 + 24], 0
+    call env_make
+    mov [rip + auth_env], rax
+.Lgit_env_ready:
     mov rdi, rsp
     mov rsi, [rip + env]
+    cmp dword ptr [rsp + 256], 1
+    jne .Lgit_env_selected
+    cmp dword ptr [rip + g_remote], 0
+    jne .Lgit_env_selected
+    mov rsi, [rip + auth_env]
+.Lgit_env_selected:
     mov rdx, [rip + run_cwd]
     test rdx, rdx
     jnz 21f
@@ -1780,6 +1819,9 @@ docs_reset:
 # drop_base(doc): no base; keeps rdi
 drop_base:
     push rdi
+    call side_base_free
+    pop rdi
+    push rdi
     mov rdi, [rdi + DOC_ghash]
     call mem_free
     pop rdi
@@ -2067,13 +2109,12 @@ set_base:
 2:  mov [r14 + rdx], al
     inc rdx
     jmp 1b
-3:  mov rdi, r14
+3:  mov [rsp + 8], rdx
+    mov rdi, r14
     mov rsi, rdx
     lea rdx, [rsp]
     call hash_text
     mov r15, rax
-    mov rdi, r14
-    call mem_free
     # the same as before: keep the marks
     cmp dword ptr [rbx + DOC_gstate], GS_BASE
     jne 4f
@@ -2088,8 +2129,21 @@ set_base:
     jz 4f
     mov rdi, r15
     call mem_free
+    mov rdi, r14
+    call mem_free
     EPILOGUE
-4:  mov rdi, [rbx + DOC_ghash]
+4:  mov rdi, rbx
+    call side_base_free
+    call doc_new
+    mov [rbx + DOC_gbase], rax
+    mov rdi, rax
+    xor esi, esi
+    mov rdx, r14
+    mov rcx, [rsp + 8]
+    call raw_insert
+    mov rdi, r14
+    call mem_free
+    mov rdi, [rbx + DOC_ghash]
     call mem_free
     mov [rbx + DOC_ghash], r15
     mov rax, [rsp]
@@ -2148,6 +2202,7 @@ FN git_drop_base_ext
 FN git_doc_free
     PROLOGUE
     mov rbx, rdi
+    call side_base_free
     mov rdi, [rbx + DOC_qbase]
     call mem_free
     mov qword ptr [rbx + DOC_qbase], 0

@@ -160,6 +160,7 @@ FN main
     mov esi, [rip + opt_h]
     call headless_init
 .Lm_open:
+    call fcitx_start
     call open_initial
     mov rdi, [rip + opt_control]
     test rdi, rdi
@@ -172,6 +173,7 @@ FN main
     jmp .Lm_exit
 3:  call loop_run
 .Lm_exit:
+    call fcitx_stop
     mov dword ptr [rip + g_quit], 1
     call app_clip_reset
     call headless_clip_reset

@@ -85,6 +85,8 @@ cfg_agents_opencode: .long 1
 .globl cfg_scroll_sens, cfg_fast_sens
 cfg_scroll_sens: .long 100       # scroll_sensitivity: multiplier in hundredths
 cfg_fast_sens: .long 400         # fast_scroll_sensitivity: multiplier while alt is held
+.globl cfg_editor_scroll_sens
+cfg_editor_scroll_sens: .long 50 # editor-only wheel multiplier; panels keep their existing speed
 .globl cfg_term_font_size, cfg_term_scrollback, cfg_term_h, cfg_term_shell, cfg_git
 .globl cfg_term_line_height, cfg_term_font
 cfg_term_font_size: .long 14
@@ -105,6 +107,10 @@ cfg_theme: .quad cfg_def_theme
 cfg_dark_theme: .quad cfg_def_theme
 cfg_light_theme: .quad cfg_def_light_theme
 cfg_font: .quad .Lempty
+.globl cfg_fallback_font
+cfg_fallback_font: .quad .Lempty
+.globl cfg_chinese_toggle_key
+cfg_chinese_toggle_key: .quad .Lchinese_toggle_default
 cfg_ui_font: .quad .Lempty
 .globl cfg_file_icons
 cfg_file_icons: .quad .Lempty   # [ui] file_icons: rhun (empty), none or OWNER/NAME/THEME (iconth.s)
@@ -300,7 +306,18 @@ FN setting_assign
     jmp 21b
 22: mov [r14], r15d
     jmp 9f
-3:  # Copy first: the input may be the current setting's own allocation.
+3:  # Invalid shortcut text preserves the last usable binding; empty disables it.
+    lea rax, [rip + cfg_chinese_toggle_key]
+    cmp r14, rax
+    jne 30f
+    test r13, r13
+    jz 30f
+    mov rdi, r12
+    mov rsi, r13
+    call parse_combo
+    test eax, eax
+    jz 9f
+30: # Copy first: the input may be the current setting's own allocation.
     lea rax, [rip + cfg_save_actions]
     cmp r14, rax
     jne 31f
@@ -825,6 +842,7 @@ dir_each_cb:
 cfg_def_theme: .asciz "rhun-dark"
 cfg_def_light_theme: .asciz "rhun-light"
 .Lempty: .asciz ""
+.Lchinese_toggle_default: .asciz "ctrl+alt+space"
 .Ldef_exclude: .asciz ".git node_modules target build .cache __pycache__ .venv .idea .DS_Store"
 .Ldef_sources: .asciz "claude codex grok opencode"
 .Lold_sources: .asciz "claude codex"
@@ -915,6 +933,9 @@ g_settings:
     SETTING .Ls_ui, fast_scroll_sensitivity, ST_INT, cfg_fast_sens, 10, 1000, 10, 1, "Fast scroll sensitivity", "Multiplier used while alt is held during a scroll."
     SETTING .Ls_editor, font_size, ST_INT, cfg_font_size, 8, 40, 1, 0, "Editor font size", "Font size of the text you edit."
     SETTING .Ls_editor, font, ST_STR, cfg_font, 0, 0, 0, 0, "Editor font", "Path to a monospace .ttf file. Empty uses the built-in Iosevka."
+    SETTING .Ls_editor, fallback_font, ST_STR, cfg_fallback_font, 0, 0, 0, 0, "Chinese fallback font", "Path to a TrueType .ttf or .ttc used for missing characters before system fonts."
+    SETTING .Ls_editor, chinese_toggle_key, ST_STR, cfg_chinese_toggle_key, 0, 0, 0, 0, "Chinese / English hotkey", "Linux/WSL input toggle shortcut; empty disables it. Windows uses the system IME."
+    SETTING .Ls_editor, scroll_sensitivity, ST_INT, cfg_editor_scroll_sens, 10, 200, 10, 1, "Editor scroll sensitivity", "Editor wheel speed: 0.5 by default, 1.0 restores the previous speed. Also affected by the global scroll multiplier."
     SETTING .Ls_editor, line_height, ST_INT, cfg_line_height, 100, 250, 5, 1, "Line height", "Multiple of the font size."
     SETTING .Ls_editor, tab_width, ST_INT, cfg_tab_width, 1, 16, 1, 0, "Tab width", "Columns per tab stop."
     SETTING .Ls_editor, insert_spaces, ST_BOOL, cfg_insert_spaces, 0, 1, 1, 0, "Indent with spaces", "Tab key inserts spaces instead of a tab character."
@@ -924,6 +945,7 @@ g_settings:
     SETTING .Ls_editor, match_brackets, ST_BOOL, cfg_match_brackets, 0, 1, 1, 0, "Match brackets", "Outline the bracket at the cursor and its partner."
     SETTING .Ls_editor, indent_guides, ST_BOOL, cfg_indent_guides, 0, 1, 1, 0, "Indent guides", "Thin vertical lines at indentation levels."
     SETTING .Ls_editor, word_wrap, ST_BOOL, cfg_word_wrap, 0, 1, 1, 0, "Word wrap", "Wrap long lines at the edge of the editor (alt+z)."
+    SETTING .Ls_editor, side_diff, ST_BOOL, cfg_side_diff, 0, 1, 1, 0, "Side-by-side Git diff", "Compare files opened from Git Changes with HEAD; Explorer opens the normal editor."
     SETTING .Ls_editor, whitespace, ST_BOOL, cfg_whitespace, 0, 1, 1, 0, "Show whitespace", "Draw dots for spaces and arrows for tabs."
     SETTING .Ls_editor, cursor_blink, ST_BOOL, cfg_cursor_blink, 0, 1, 1, 0, "Blinking cursor", "Blink the text cursor while idle."
     SETTING .Ls_editor, smooth_caret, ST_BOOL, cfg_smooth_caret, 0, 1, 1, 0, "Wide caret", "Draw a 2 point caret instead of a hairline."

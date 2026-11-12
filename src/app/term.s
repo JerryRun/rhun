@@ -83,6 +83,8 @@ FN term_free
     call sb_free
     lea rdi, [rbx + TM_title]
     call sb_free
+    lea rdi, [rbx + TM_cwd]
+    call sb_free
     mov rdi, rbx
     call mem_free
     EPILOGUE
@@ -2404,6 +2406,75 @@ ext_color:
     xor eax, eax
     ret
 
+# term_osc_cwd(terminal, file URI, bytes): bounded OSC 7 metadata, never executed.
+term_osc_cwd:
+    PROLOGUE
+    mov rbx, rdi
+    mov r12, rsi
+    mov r13, rdx
+    cmp r13, 8
+    jb 9f
+    mov rdi, r12
+    lea rsi, [rip + .Losc_file]
+    mov edx, 7
+    call memeq
+    test eax, eax
+    jz 9f
+    add r12, 7
+    sub r13, 7
+1:  test r13, r13
+    jz 9f
+    cmp byte ptr [r12], '/'
+    je 2f
+    inc r12
+    dec r13
+    jmp 1b
+2:
+.ifdef WINDOWS
+    cmp r13, 4
+    jb 3f
+    cmp byte ptr [r12 + 2], ':'
+    jne 3f
+    inc r12                   # file:///C:/folder -> C:/folder
+    dec r13
+.endif
+3:  lea rdi, [rbx + TM_cwd]
+    call sb_clear
+4:  test r13, r13
+    jz 7f
+    movzx r14d, byte ptr [r12]
+    inc r12
+    dec r13
+    cmp r14d, '%'
+    jne 5f
+    cmp r13, 2
+    jb 8f
+    mov rdi, r12
+    mov esi, 2
+    call parse_hex
+    cmp edx, 2
+    jne 8f
+    mov r14d, eax
+    add r12, 2
+    sub r13, 2
+5:  cmp r14d, 32
+    jb 8f
+    lea rdi, [rbx + TM_cwd]
+    mov esi, r14d
+    call sb_push_byte
+    jmp 4b
+7:  lea rdi, [rbx + TM_cwd]
+    xor esi, esi
+    call sb_push_byte
+    dec qword ptr [rbx + TM_cwd + SB_len]
+    jmp 9f
+8:  lea rdi, [rbx + TM_cwd]
+    call sb_clear
+9:  EPILOGUE
+.section .rodata
+.Losc_file: .ascii "file://"
+.text
+
 # osc_dispatch(): OSC number ; text
 osc_dispatch:
     push r12
@@ -2441,7 +2512,14 @@ osc_dispatch:
     call sb_push_byte
     dec qword ptr [rbx + TM_title + SB_len]
     jmp 9f
-2:  # 10, 11, 12 ; ? : colors of the text, background and cursor
+2:  cmp r14d, 7
+    jne 21f
+    mov rdi, rbx
+    mov rsi, r12
+    mov rdx, r13
+    call term_osc_cwd
+    jmp 9f
+21: # 10, 11, 12 ; ? : colors of the text, background and cursor
     lea eax, [r14 - 10]
     cmp eax, 2
     ja 9f

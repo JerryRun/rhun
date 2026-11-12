@@ -78,6 +78,8 @@ FN doc_renew_id
 FN doc_free
     push rbx
     mov rbx, rdi
+    call mdpreview_doc_free
+    mov rdi, rbx
     call tx_doc_closed          # wsedit: its part of a workspace edit stays undoable on disk, or is lost
     mov rdi, rbx
     call save_forget

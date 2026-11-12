@@ -44,6 +44,9 @@ hs_content: .long 0             # px: the widest line and a margin
 hs_view: .long 0                # px: the text area
 hs_off: .long 0                 # px: DOC_scrollx for the scrollbar
 hs_track: .zero 16              # x, y, w, h
+ed_wheel_rem: .zero 8          # retain subpixel wheel deltas on both axes
+.p2align 3
+ed_wheel_doc: .quad 0          # document ID owning those remainders
 ww_col: .long 0                 # widest_span: columns of the current line
 ww_max: .long 0                 # and of the widest so far
 .p2align 3
@@ -59,6 +62,40 @@ clip_sb: .zero SB_SIZE
 g_ed_find: .zero SB_SIZE        # find highlight text (set by the find bar)
 
 .text
+
+# Editor-only wheel scaling, retaining fractional pixels for trackpads. Called once per frame.
+editor_wheel_xy:
+    sub rsp, 8
+    call wheel_xy
+    add rsp, 8
+    mov r8d, eax
+    mov r9d, edx
+    mov rax, [rip + g_doc]
+    mov rax, [rax + DOC_id]
+    cmp rax, [rip + ed_wheel_doc]
+    je 1f
+    mov [rip + ed_wheel_doc], rax
+    mov qword ptr [rip + ed_wheel_rem], 0
+1:  movsxd rcx, dword ptr [rip + cfg_editor_scroll_sens]
+    movsxd rax, r8d
+    imul rax, rcx
+    movsxd rdx, dword ptr [rip + ed_wheel_rem]
+    add rax, rdx
+    mov r10d, 100
+    cqo
+    idiv r10
+    mov r8d, eax
+    mov [rip + ed_wheel_rem], edx
+    movsxd rax, r9d
+    imul rax, rcx
+    movsxd rdx, dword ptr [rip + ed_wheel_rem + 4]
+    add rax, rdx
+    cqo
+    idiv r10
+    mov [rip + ed_wheel_rem + 4], edx
+    mov edx, eax
+    mov eax, r8d
+    ret
 
 # ed_sel(doc) -> rax start, rdx end
 FN ed_sel
@@ -1082,6 +1119,12 @@ copy_to_clip:
 
 FN cmd_copy
     sub rsp, 8
+    xor edi, edi
+    call mdpreview_clip
+    add rsp, 8
+    test eax, eax
+    jnz 1f
+    sub rsp, 8
     xor edi, edi                # a picture with the keyboard copies itself (views group, viewpic.s)
     call views_clip_command
     add rsp, 8
@@ -1101,6 +1144,14 @@ FN cmd_copy
 1:  ret
 
 FN cmd_cut
+    sub rsp, 8
+    mov edi, 1
+    call mdpreview_clip
+    add rsp, 8
+    test eax, eax
+    jz 101f
+    ret
+101:
     sub rsp, 8
     mov edi, 1                  # a picture with the keyboard cuts itself (views group, viewpic.s)
     call views_clip_command
@@ -1207,6 +1258,14 @@ FN ed_paste
     EPILOGUE
 
 FN cmd_select_all
+    sub rsp, 8
+    mov edi, 2
+    call mdpreview_clip
+    add rsp, 8
+    test eax, eax
+    jz 101f
+    ret
+101:
     sub rsp, 8
     mov edi, 2                  # a picture with the keyboard selects all of itself (viewpic.s)
     call views_clip_command
@@ -2020,6 +2079,11 @@ editor_gutter:
 #   replaced under a view that is kept (a reload, a diff fetched again, a reopened tab) can do that,
 #   and a wrapped view reads the rows of its top line first (its clamp, a click in it).
 FN ed_top_inside
+    call side_is_active
+    test eax, eax
+    jz .Lsd_top_normal
+    ret
+.Lsd_top_normal:
     mov rax, [rdi + DOC_nlines]
     dec rax
     mov rcx, [rdi + DOC_scrolly]
@@ -2036,13 +2100,13 @@ FN ed_top_inside
 clamp_scroll:
     cmp dword ptr [rip + g_ed_cell], 0      # a cell's lines are the notebook's to scroll
     jne 4f
-    mov rax, [rdi + DOC_nlines]
+    call fold_scroll_rows
     cmp dword ptr [rip + cfg_scroll_past_end], 0
     jne 1f
     call rows_mode
     test eax, eax
     jnz wrap_clamp
-    mov rax, [rdi + DOC_nlines]  # (rows_mode returned in rax)
+    call fold_scroll_rows
     # last line at the bottom
     mov ecx, [rip + g_ed_h]
     xor edx, edx
@@ -2077,7 +2141,10 @@ reveal:
     jne 5f
     mov rsi, [rbx + DOC_cur]
     call doc_line_of
-    mov r12, rax                # line
+    mov rsi, rax
+    mov rdi, rbx
+    call side_line_row
+    mov r12, rax                # line (aligned visual row in a comparison)
     mov eax, [rip + g_ed_h]
     xor edx, edx
     div dword ptr [rip + g_lh]
@@ -2177,6 +2244,10 @@ FN pos_at_point
 1:  movsxd rcx, dword ptr [rip + g_lh]
     xor edx, edx
     div rcx
+    mov r14, rax
+    mov rdi, rbx
+    mov rsi, r14
+    call side_row_line
     mov r14, rax
     cmp r14, [rbx + DOC_nlines]
     jb 2f
@@ -2578,7 +2649,8 @@ FN editor_draw
     cmp dword ptr [rip + g_ed_cell], 0      # over a cell the wheel scrolls the notebook
     jne 3f
     # wheel (sideways with Shift: wheel_xy)
-    call wheel_xy
+    call editor_wheel_xy
+    mov [rsp + 104], eax       # scaled horizontal delta; do not consume remainders twice
     mov eax, edx
     test eax, eax
     jz 2f
@@ -2601,7 +2673,7 @@ FN editor_draw
     idiv rcx
     add [rbx + DOC_scrolly], rax
     mov dword ptr [rip + g_dirty], 1
-2:  call wheel_xy
+2:  mov eax, [rsp + 104]
     test eax, eax
     jz 3f
     cmp dword ptr [rip + cfg_word_wrap], 0
@@ -2826,6 +2898,9 @@ FN editor_draw
 72:
     mov rsi, [rbx + DOC_cur]
     call doc_line_of
+    mov rdi, rbx
+    mov rsi, rax
+    call side_line_row
     mov r8, rax                 # the line
     mov eax, [rip + g_ed_h]
     xor edx, edx
@@ -2851,6 +2926,12 @@ FN editor_draw
 7:  mov rdi, rbx
     call clamp_scroll
     # syntax states for everything visible
+    cmp qword ptr [rip + g_diff_active], 0
+    je .Lsd_syntax_normal
+    mov rdi, rbx
+    mov rsi, [rbx + DOC_nlines]
+    call syntax_prepare
+.Lsd_syntax_normal:
     mov rsi, [rbx + DOC_scrolly]
     shr rsi, 8
     mov eax, [rip + g_ed_h]
@@ -2899,6 +2980,7 @@ FN editor_draw
     mov rcx, rax
     shr rax, 8
     mov r12, rax                # first line
+    mov [rsp + 80], rax         # aligned row in side-by-side mode
     and ecx, 255
     imul ecx, [rip + g_lh]
     shr ecx, 8
@@ -2918,12 +3000,38 @@ FN editor_draw
     call git_doc_marks
     mov [rsp + 96], rax
 .Led_line:
+    cmp qword ptr [rip + g_diff_active], 0
+    je .Lsd_line_normal
+    mov rax, [rip + g_diff_active]
+    mov rcx, [rsp + 80]
+    cmp rcx, [rax + 8]
+    jae .Led_lines_done
+    imul rcx, rcx, 24
+    mov r12, [rax + rcx + 72]
+    test r12, r12
+    js .Lsd_blank_line
+.Lsd_line_normal:
     cmp r12, [rbx + DOC_nlines]
     jae .Led_lines_done
     mov eax, [rip + g_ed_y]
     add eax, [rip + g_ed_h]
     cmp r13d, eax
     jge .Led_lines_done
+    cmp qword ptr [rip + g_diff_active], 0
+    je .Lsd_no_tint
+    mov rax, [rip + g_diff_active]
+    imul rcx, [rsp + 80], 24
+    cmp qword ptr [rax + rcx + 80], 0
+    je .Lsd_no_tint
+    mov edi, [rip + g_ed_x]
+    mov esi, r13d
+    mov edx, [rip + g_ed_w]
+    mov ecx, [rip + g_lh]
+    COLOR r8d, T_GIT_ADD
+    and r8d, 0xffffff
+    or r8d, 0x22000000
+    call gfx_fill
+.Lsd_no_tint:
     # current line highlight
     cmp dword ptr [rip + cfg_highlight_line], 0
     je 1f
@@ -3023,7 +3131,14 @@ FN editor_draw
 .Led_adv:
     add r13d, [rip + g_lh]
     inc r12
+    inc qword ptr [rsp + 80]
     jmp .Led_line
+.Lsd_blank_line:
+    mov eax, [rip + g_ed_y]
+    add eax, [rip + g_ed_h]
+    cmp r13d, eax
+    jge .Led_lines_done
+    jmp .Led_adv
 .Led_diffline:
     mov rdi, rbx
     mov rsi, r12
@@ -3974,6 +4089,12 @@ draw_caret:
     cmp edi, [rip + g_ed_tx]
     jl 9f
     mov dword ptr [rip + caret_frame], 1     # on screen: a caret to blink
+    mov [rip + g_ime_x], edi
+    mov eax, [rip + g_caret_y]
+    mov [rip + g_ime_y], eax
+    mov eax, [rip + g_lh]
+    mov [rip + g_ime_h], eax
+    mov dword ptr [rip + g_ime_valid], 1
     call ed_caret_shown
     test eax, eax
     jz 9f
@@ -4235,6 +4356,10 @@ FN ed_blink_phase
 #   scrolled out of view does not blink), and drawn while the blink shows it
 FN ed_caret_draw
     PROLOGUE 16
+    mov [rip + g_ime_x], edi
+    mov [rip + g_ime_y], esi
+    mov [rip + g_ime_h], ecx
+    mov dword ptr [rip + g_ime_valid], 1
     mov [rsp], edi
     mov [rsp + 4], esi
     mov [rsp + 8], edx

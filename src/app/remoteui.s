@@ -38,6 +38,7 @@ ru_ap_in: .zero SB_SIZE         # the question
 ru_ap_out: .zero SB_SIZE        # the answer, as it goes to the askpass program
 ru_ap_label: .zero 512
 ru_ap_env_prog: .zero 4300      # SSH_ASKPASS=...
+ru_ap_env_git: .zero 4300       # GIT_ASKPASS=... (the same private prompt transport)
 ru_ap_env_sock: .zero 160       # RHUN_ASKPASS=...
 .p2align 3
 ru_ap_env: .zero 8 * 6
@@ -1810,6 +1811,31 @@ ru_chars_before:
 
 # ---------------- askpass ----------------
 
+# git_askpass_extras() -> environment additions for local Git network operations.
+# Credential helpers retain precedence; Git invokes us only when it needs user input.
+FN git_askpass_extras
+    PROLOGUE
+    call remote_askpass_env
+    mov rbx, rax
+    cmp qword ptr [rbx], 0
+    je 9f
+    lea rdi, [rip + ru_ap_env_git]
+    lea rsi, [rip + .Le_git_askpass]
+    call cstr_copy
+    mov rdi, rax
+    lea rsi, [rip + ru_exe]
+    call cstr_copy
+    xor ecx, ecx
+1:  cmp qword ptr [rbx + rcx*8], 0
+    je 2f
+    inc ecx
+    jmp 1b
+2:  lea rax, [rip + ru_ap_env_git]
+    mov [rbx + rcx*8], rax
+    mov qword ptr [rbx + rcx*8 + 8], 0
+9:  mov rax, rbx
+    EPILOGUE
+
 # remote_askpass_env() -> extra environment entries for the transport (0-terminated list): ssh runs
 #   this program as its askpass, which asks this window through a socket in a private folder
 FN remote_askpass_env
@@ -2467,6 +2493,7 @@ FN remote_askpass_main
 .Lw_assphrase: .ascii "passphrase"
 .Lw_pin: .ascii "PIN"
 .Le_askpass: .asciz "SSH_ASKPASS="
+.Le_git_askpass: .asciz "GIT_ASKPASS="
 .Le_require: .asciz "SSH_ASKPASS_REQUIRE=force"
 .Le_rhun_askpass: .asciz "RHUN_ASKPASS="
 .Le_display: .asciz "DISPLAY"

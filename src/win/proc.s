@@ -19,6 +19,94 @@
 children: .zero CHILD_SIZE * CHILD_MAX
 
 .text
+# win_proc_cwd(pid, utf8 buffer, capacity): read our x64 shell's current directory.
+# Every remote-memory access is checked; failures leave the terminal's initial folder in use.
+FN win_proc_cwd
+    PROLOGUE 8400
+    mov r12, rsi
+    mov r13, rdx
+    mov r8d, edi
+    mov ecx, 0x410              # PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+    xor edx, edx
+    API OpenProcess
+    test rax, rax
+    jz 8f
+    mov rbx, rax
+    mov rcx, rbx
+    xor edx, edx               # ProcessBasicInformation
+    lea r8, [rsp + 96]
+    mov r9d, 48
+    mov qword ptr [rsp + 32], 0
+    API NtQueryInformationProcess
+    test eax, eax
+    js 7f
+    mov rdx, [rsp + 104]       # PROCESS_BASIC_INFORMATION.PebBaseAddress
+    test rdx, rdx
+    jz 7f
+    add rdx, 0x20              # x64 PEB.ProcessParameters
+    mov rcx, rbx
+    lea r8, [rsp + 160]
+    mov r9d, 8
+    mov qword ptr [rsp + 32], 0
+    API ReadProcessMemory
+    test eax, eax
+    jz 7f
+    mov rdx, [rsp + 160]
+    test rdx, rdx
+    jz 7f
+    add rdx, 0x38              # RTL_USER_PROCESS_PARAMETERS.CurrentDirectory.DosPath
+    mov rcx, rbx
+    lea r8, [rsp + 176]
+    mov r9d, 16                # UNICODE_STRING
+    mov qword ptr [rsp + 32], 0
+    API ReadProcessMemory
+    test eax, eax
+    jz 7f
+    movzx r15d, word ptr [rsp + 176]
+    test r15d, r15d
+    jz 7f
+    test r15d, 1
+    jnz 7f
+    cmp r15d, 8190
+    ja 7f
+    mov rcx, rbx
+    mov rdx, [rsp + 184]
+    lea r8, [rsp + 208]
+    mov r9d, r15d
+    mov qword ptr [rsp + 32], 0
+    API ReadProcessMemory
+    test eax, eax
+    jz 7f
+    mov word ptr [rsp + r15 + 208], 0
+    lea rdi, [rsp + 208]
+    call win_utf8
+    test rax, rax
+    jz 7f
+    mov r14, rax
+    mov rdi, rax
+    call win_slashes
+    mov rdi, r14
+    call strlen
+    cmp rax, r13
+    jae 6f
+    mov r15, rax
+    mov rdi, r12
+    mov rsi, r14
+    lea rcx, [rax + 1]
+    rep movsb
+    mov rdi, r14
+    call mem_free
+    mov rcx, rbx
+    API CloseHandle
+    mov rax, r15
+    EPILOGUE
+6:  mov rdi, r14
+    call mem_free
+7:  mov rcx, rbx
+    API CloseHandle
+8:  mov rax, -1
+    EPILOGUE
+
 # proc_which(name) -> path to run (mem_free it), or 0. Like the Unix one it searches PATH only:
 # SearchPathW's default order puts the application folder and the current directory first, where a
 # project could plant powershell.exe or git.exe.

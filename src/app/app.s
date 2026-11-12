@@ -168,6 +168,8 @@ FN app_init
 # app_load_fonts(): built-in fonts unless the config names .ttf files
 FN app_load_fonts
     PROLOGUE
+    mov rdi, [rip + cfg_fallback_font]
+    call font_set_fallback
     lea rdi, [rip + font_mono]
     lea rsi, [rip + font_mono_end]
     sub rsi, rdi
@@ -774,6 +776,7 @@ FN app_image
 
 FN app_activate_tab
     push rdi
+    call side_leave
     call vim_leave
     pop rdi
     mov rax, [rip + g_doc]
@@ -811,6 +814,7 @@ FN app_activate_tab
     mov dword ptr [rip + g_focus], FOCUS_SETTINGS
     call settings_focus
 2:  mov dword ptr [rip + g_tabscroll_reveal], 1
+    call mdpreview_focus_sync
     # the caret shows at once, as after a key
     call time_ms
     mov [rip + g_blink_t0], rax
@@ -1077,6 +1081,9 @@ FN app_open_file
     js 1f
     mov rdi, rax
     mov rbx, rax
+    call tab_at
+    and dword ptr [rax + TAB_flags], ~TF_SIDE_DIFF
+    mov rdi, rbx
     call app_activate_tab
     mov rax, rbx
     EPILOGUE
@@ -1522,6 +1529,7 @@ FN app_close_tab_now
     mov dword ptr [rip + g_focus], FOCUS_EDITOR
 .Lclose_focus_restored:
     call app_sync_doc
+    call mdpreview_focus_sync
     call app_update_title
     EPILOGUE
 
@@ -2234,6 +2242,17 @@ FN app_on_pointer_leave
 
 # app_on_button(btn, pressed, mods)
 FN app_on_button
+    push rdi
+    push rsi
+    push rdx
+    call ime_pointer
+    pop rdx
+    pop rsi
+    pop rdi
+    test eax, eax
+    jz 0f
+    ret
+0:
     mov [rip + g_mods], edx
     test esi, esi
     jz 1f
@@ -2435,6 +2454,19 @@ field_changed:
 
 # app_on_key(keysym, cp, mods)
 FN app_on_key
+    push rdi
+    push rsi
+    push rdx
+    call fcitx_key
+    pop rdx
+    pop rsi
+    pop rdi
+    test eax, eax
+    jnz 1f
+    jmp app_key_direct
+1:  ret
+
+FN app_key_direct
     PROLOGUE 16
     mov r12d, edi
     mov r13d, esi
@@ -2478,6 +2510,16 @@ FN app_on_key
     call extbar_close
     jmp 9f
 10: # focused components get the first chance
+    cmp dword ptr [rip + g_focus], FOCUS_MD_PREVIEW
+    jne 101f
+    mov edi, r12d
+    mov esi, r13d
+    mov edx, r14d
+    call mdpreview_key
+    test eax, eax
+    jnz 9f
+    jmp .Lk_bind
+101:
     mov eax, [rip + g_focus]
     cmp eax, FOCUS_QUICK        # an extension's quick input (quick.s)
     jne 12f
@@ -2869,6 +2911,9 @@ FN app_timeout
 .p2align 3
 # app_timeout's parts: each fn() -> eax milliseconds until it needs a tick, or -1; 0-ended
 timeout_fns:
+    .quad fcitx_timeout
+    .quad wsl_input_timeout
+    .quad wsl_window_timeout
     .quad agents_timeout
     .quad git_timeout
     .quad gitrepos_timeout      # and the other workspace folders' repositories (gitrepos.s)
@@ -2955,6 +3000,9 @@ FN app_tick
     call dview_context
     call dg_tick
     call remote_tick            # remote hosts
+    call wsl_input_tick
+    call fcitx_tick
+    call wsl_window_tick
     call keys_tick              # a chord's pause (keys.s)
     call newext_tick            # New Extension's steps (newext.s)
     call submitext_tick         # Submit to Index's steps (submitext.s)
@@ -2963,6 +3011,7 @@ FN app_tick
 # ---------------- rendering ----------------
 
 FN app_render
+    mov dword ptr [rip + g_ime_valid], 0
     PROLOGUE 64
     call ui_update_metrics
     call ui_begin
@@ -3214,6 +3263,7 @@ FN app_render
     call palette_draw
     call quick_draw             # an extension's quick input (quick.s)
     call dialog_draw
+    call ime_draw
     call toast_draw
     call tip_commit             # after every button with a tooltip has been drawn
     call tip_draw
@@ -3427,6 +3477,11 @@ FN center_draw
     mov [rsp + 4], esi
     mov [rsp + 8], edx
     mov [rsp + 12], ecx
+    mov rax, [rip + g_diff_doc]
+    cmp rax, [rip + g_doc]
+    je .Lcenter_same_doc
+    call side_leave
+.Lcenter_same_doc:
     cmp qword ptr [rip + g_tabs + VEC_len], 0
     jne 1f
     call welcome_draw
@@ -3460,6 +3515,15 @@ FN center_draw
     mov rax, [rip + g_tab_cur]
     mov rdi, rax
     call tab_at
+    cmp qword ptr [rax + TAB_kind], TAB_MD_PREVIEW
+    jne 301f
+    mov edi, [rip + g_editor_rect]
+    mov esi, [rip + g_editor_rect + 4]
+    mov edx, [rip + g_editor_rect + 8]
+    mov ecx, [rip + g_editor_rect + 12]
+    call mdpreview_draw_tab
+    EPILOGUE
+301:
     cmp qword ptr [rax + TAB_kind], TAB_IMAGE
     jne 4f
     mov rdi, [rax + TAB_doc]
@@ -3518,6 +3582,20 @@ FN center_draw
     call find_draw
     EPILOGUE
 2:  mov rbx, [rip + g_doc]
+    mov edi, [rip + g_editor_rect]
+    mov esi, [rip + g_editor_rect + 4]
+    mov edx, [rip + g_editor_rect + 8]
+    mov ecx, [rip + g_editor_rect + 12]
+    call mdpreview_draw_side
+    test eax, eax
+    jnz .Lcenter_overlays
+    mov edi, [rip + g_editor_rect]
+    mov esi, [rip + g_editor_rect + 4]
+    mov edx, [rip + g_editor_rect + 8]
+    mov ecx, [rip + g_editor_rect + 12]
+    call git_side_draw
+    test eax, eax
+    jnz .Lcenter_overlays
     mov rdi, rbx
     mov rsi, [rbx + DOC_scrolly]
     shr rsi, 8
@@ -3531,6 +3609,7 @@ FN center_draw
     mov edx, [rip + g_editor_rect + 8]
     mov ecx, [rip + g_editor_rect + 12]
     call editor_draw
+.Lcenter_overlays:
     call doclinks_draw             # language features: the link under ctrl, underlined (doclinks.s)
     call peek_draw              # and the peek view over the text (peek.s)
     call find_draw
@@ -3651,7 +3730,7 @@ FN titlebar_draw
     sub ecx, eax
     mov [rsp + 36], ecx        # left edge of the toolbar, with a gap
     # project name and a chevron: the button for the project menu
-    mov rax, [rip + g_project_name]
+    call wfold_title
     test rax, rax
     jnz 4f
     lea rax, [rip + .Lrhun]
@@ -5865,7 +5944,7 @@ unsaved_kept:
     mov dword ptr [rip + g_restart], 0
     mov dword ptr [rip + switch_pending], 0
     mov dword ptr [rip + g_session_final], 0
-    ret
+    jmp workspace_cancel_switch
 
 # close_readonly_confirmed(): Overwrite, for a close or quit that asked to save a read-only file
 close_readonly_confirmed:
@@ -6783,7 +6862,7 @@ tab_menu_pinned:
     .quad .Ltm_close, tab_menu_close, .Ltm_close_all, cmd_close_all, 0, 0
 # font_paths: the settings that name font files (font_paths_hash); 0 ends it
 font_paths:
-    .quad cfg_font, cfg_ui_font, cfg_term_font, 0
+    .quad cfg_font, cfg_ui_font, cfg_term_font, cfg_fallback_font, 0
 # tip_table: button, text, the handler it runs (0: not a command, no shortcut); 0 ends it
 tip_table:
     .quad ID_GIT_BTN, .Ltip_git, cmd_toggle_git

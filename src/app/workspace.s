@@ -20,6 +20,7 @@
 .equ WS_MAX, 16
 .equ WS_PRIMARY, 1              # wfold_flags: the primary folder
 .equ WS_TRUSTED, 2              # opened by hand, or trusted
+.equ PROMPT_WS_ADD, 101         # Save the selected folder and workspace together
 STRUCT
 F WFR_path, 8           # owned, absolute, no trailing separator
 F WFR_name, 8           # owned display name
@@ -35,6 +36,10 @@ ws_buf: .zero SB_SIZE
 ws_name: .zero 280
 ws_it: .zero INI_SIZE
 ws_file_next: .quad 0           # the workspace file workspace_reset takes as the window's
+ws_add_pending: .quad 0         # folder selected before choosing the definition destination
+ws_add_project: .quad 0         # project the pending selection belongs to
+ws_remove_save: .long 0         # save only after a primary removal actually switches the project
+.p2align 3
 .globl g_ws_gen, g_ws_file
 g_ws_file: .quad 0              # the workspace file the window opened or saved (owned), or 0
 g_ws_gen: .long 0
@@ -473,10 +478,13 @@ FN workspace_add
     call ws_push
     mov r12, rax
     call ws_save
+    call workspace_save_current
+    mov r13d, eax
     call ws_changed
     mov rdi, rbx
     call mem_free
     mov rax, r12
+    mov edx, r13d              # UI must not hide a failed workspace write with a success toast
     EPILOGUE
 7:  mov rax, -20
     EPILOGUE
@@ -519,6 +527,15 @@ FN workspace_remove
     mov rdi, rax
     call dup_cstr
     mov r12, rax
+    mov rdi, [rip + g_ws_file]
+    test rdi, rdi
+    jz 20f
+    call dup_cstr
+    mov rdi, [rip + ws_file_next]
+    mov [rip + ws_file_next], rax
+    call mem_free
+    mov dword ptr [rip + ws_remove_save], 1
+20:
     mov dword ptr [rip + ws_carrying], 1
     mov rdi, r12
     call ws_carry_for_set
@@ -546,6 +563,7 @@ FN workspace_remove
     dec qword ptr [rip + ws_folders + VEC_len]
     inc dword ptr [rip + g_ws_gen]
     call ws_save
+    call workspace_save_current
     call ws_changed
     mov eax, 1
     EPILOGUE
@@ -575,9 +593,21 @@ ws_carry_clear:
     call mem_free
     jmp 1b
 9:  mov dword ptr [rip + ws_carrying], 0
+    mov dword ptr [rip + ws_remove_save], 0
     EPILOGUE
 
 # ws_changed(): the parts that show or use the folders follow
+FN workspace_cancel_switch
+    PROLOGUE
+    call ws_carry_clear
+    mov rdi, [rip + ws_file_next]
+    mov qword ptr [rip + ws_file_next], 0
+    call mem_free
+    mov rdi, [rip + ws_carry_for]
+    mov qword ptr [rip + ws_carry_for], 0
+    call mem_free
+    EPILOGUE
+
 ws_changed:
     PROLOGUE
     call explorer_set_root
@@ -623,8 +653,12 @@ FN workspace_reset
     call ws_add_quiet
     inc rbx
     jmp 1b
-2:  call ws_carry_clear
+2:  mov r15d, [rip + ws_remove_save]
+    call ws_carry_clear
     call ws_save
+    test r15d, r15d
+    jz 8f
+    call workspace_save_current
     jmp 8f
 3:  # the remembered folders
     lea rdi, [rip + .Lext_folders]
@@ -872,7 +906,7 @@ FN workspace_open_file
 9:  xor eax, eax
     EPILOGUE
 
-# FN workspace_save_as(ptr, len): the folders (and the extensions' sections of the workspace file
+# FN workspace_save_as(ptr, len) -> eax 1 saved, 0 cancelled/failed: the folders (and the extensions' sections of the workspace file
 # in use) written to NAME.rhun-workspace (the suffix added when missing; a relative name is in the
 # primary folder); the window keeps it as its workspace file
 FN workspace_save_as
@@ -886,6 +920,10 @@ FN workspace_save_as
     mov rsi, rdx
     call mem_dup
     mov r12, rax
+.ifdef WINDOWS
+    mov rdi, r12
+    call win_slashes            # Save As accepts pasted native Windows paths too
+.endif
     PATH_ABSOLUTE r12, 1f
     mov rdi, [rip + g_project]
     mov rsi, r12
@@ -989,6 +1027,8 @@ FN workspace_save_as
     mov rdi, r13
     call mem_free
     call app_update_title
+    call explorer_set_root     # show a named workspace's first-level folder even with one root
+    mov eax, 1
     EPILOGUE
 7:  lea rdi, [rip + .Lt_write]
     call app_toast
@@ -996,7 +1036,8 @@ FN workspace_save_as
     call mem_free
     mov rdi, r13
     call mem_free
-9:  EPILOGUE
+9:  xor eax, eax
+    EPILOGUE
 
 # ws_copy_sections(text, len): its lines of every section but [folders] onto ws_buf
 ws_copy_sections:
@@ -1053,6 +1094,113 @@ ws_copy_sections:
 5:  lea r12, [r15 + 1]
     jmp 1b
 9:  EPILOGUE
+
+# FN workspace_save_current(): keep named workspaces in sync with successful folder mutations
+FN workspace_save_current
+    PROLOGUE
+    mov rdi, [rip + g_ws_file]
+    test rdi, rdi
+    jnz 1f
+    mov eax, 1                 # unnamed workspaces have no definition to update
+    jmp 9f
+1:
+    call strlen
+    mov rsi, rax
+    mov rdi, [rip + g_ws_file]
+    call workspace_save_as
+9:  EPILOGUE
+
+# FN workspace_add_cancel(): abandoning either save step leaves the workspace unchanged.
+FN workspace_add_cancel
+    PROLOGUE
+    mov rdi, [rip + ws_add_pending]
+    mov qword ptr [rip + ws_add_pending], 0
+    call mem_free
+    mov rdi, [rip + ws_add_project]
+    mov qword ptr [rip + ws_add_project], 0
+    call mem_free
+    EPILOGUE
+
+# FN workspace_save_directory_ui(path): a destination directory was picked; ask for the name.
+FN workspace_save_directory_ui
+    PROLOGUE
+    mov r12, rdi
+    cmp qword ptr [rip + ws_add_pending], 0
+    je 9f
+    lea rdi, [rip + ws_buf]
+    call sb_clear
+    lea rdi, [rip + ws_buf]
+    mov rsi, [rip + g_project_name]
+    call sb_push_cstr
+    lea rdi, [rip + ws_buf]
+    lea rsi, [rip + .Lsuffix]
+    call sb_push_cstr
+    lea rdi, [rip + ws_buf]
+    xor esi, esi
+    call sb_push_byte
+    mov rdi, r12
+    mov rsi, [rip + ws_buf + SB_ptr]
+    call path_join
+    mov r12, rax
+    mov rdi, rax
+    call strlen
+    mov rcx, rax
+    lea rdi, [rip + .Lask_save]
+    mov esi, PROMPT_WS_ADD
+    mov rdx, r12
+    call palette_ext_prompt_open
+    mov rdi, r12
+    call mem_free
+9:  EPILOGUE
+
+# FN workspace_save_prompt_done(ptr, len, kind): persist the proposed roots before committing UI.
+FN workspace_save_prompt_done
+    PROLOGUE 16
+    cmp edx, PROMPT_WS_ADD
+    je 1f
+    call workspace_save_as
+    EPILOGUE
+1:  mov [rsp], rdi
+    mov [rsp + 8], rsi
+    mov rdi, [rip + ws_add_project]
+    mov rsi, [rip + g_project]
+    test rdi, rdi
+    jz 8f
+    test rsi, rsi
+    jz 8f
+    call strcmp_eq
+    test eax, eax
+    jz 8f
+    mov rdi, [rip + ws_add_pending]
+    test rdi, rdi
+    jz 8f
+    call ws_check
+    test rax, rax
+    jnz 8f
+    mov rdi, [rip + ws_add_pending]
+    call ws_push
+    mov rdi, [rsp]
+    mov rsi, [rsp + 8]
+    call workspace_save_as
+    test eax, eax
+    jz 7f
+    call ws_save
+    call ws_changed
+    lea rdi, [rip + .Lt_added]
+    call app_toast
+    jmp 8f
+7:  # Failed Save As: undo the tentative root, without touching session membership.
+    dec qword ptr [rip + ws_folders + VEC_len]
+    mov rdi, [rip + ws_folders + VEC_len]
+    call ws_at_any
+    mov rbx, rax
+    mov rdi, [rbx + WFR_path]
+    call mem_free
+    mov rdi, [rbx + WFR_name]
+    call mem_free
+    inc dword ptr [rip + g_ws_gen]
+8:  call workspace_add_cancel
+    EPILOGUE
 
 # FN cmd_save_workspace_as(): the palette asks for the workspace file's name
 FN cmd_save_workspace_as
@@ -1249,19 +1397,158 @@ ws_suffix_cb:
 
 # ---------------- commands ----------------
 
-# FN cmd_add_workspace_folder(): the path browser picks a folder to add
-FN cmd_add_workspace_folder
-    mov edi, 2
-    jmp browse_open_kind
+# ws_find_definition() -> owned path or 0: reuse a definition in the project directory only
+# when its first existing folder is this project, so adding never switches to another project.
+ws_find_definition:
+    PROLOGUE 16
+    mov qword ptr [rsp], 0
+    mov rdi, [rip + g_project]
+    lea rsi, [rip + ws_definition_cb]
+    mov rdx, rsp
+    call vfs_dir_each
+    mov rax, [rsp]
+    EPILOGUE
 
-# FN workspace_add_ui(path): Add Folder's pick: added, or a toast says why not
-FN workspace_add_ui
+ws_definition_cb:
     PROLOGUE
     mov rbx, rdi
+    test edx, edx
+    jnz 9f
+    cmp qword ptr [rbx], 0
+    jne 9f
+    mov r12, rsi
+    mov rdi, rsi
+    call ws_is_file
+    test eax, eax
+    jz 9f
+    mov rdi, [rip + g_project]
+    mov rsi, r12
+    call path_join
+    mov r12, rax
+    mov rdi, rax
+    mov esi, 65536
+    call vfs_read_limited
+    test rax, rax
+    jz 8f
+    mov r13, rax
+    mov rsi, rax
+    lea rdi, [rip + ws_it]
+    call ini_init
+1:  lea rdi, [rip + ws_it]
+    call ini_next
+    test eax, eax
+    jz 7f
+    lea rdi, [rip + ws_it]
+    lea rsi, [rip + .Lsec_folders]
+    call ini_sec_is
+    test eax, eax
+    jz 1b
+    lea rdi, [rip + ws_it]
+    lea rsi, [rip + .Lk_path]
+    call ini_key_is
+    test eax, eax
+    jz 1b
+    mov rdi, [rip + ws_it + INI_val]
+    mov rsi, [rip + ws_it + INI_vallen]
+    call mem_dup
+    mov r14, rax
+    PATH_ABSOLUTE r14, 2f
+    mov rdi, [rip + g_project]
+    mov rsi, r14
+    call path_join
+    mov rdi, r14
+    mov r14, rax
+    call mem_free
+2:  mov rdi, r14
+    call ws_path_clean
+    mov rdi, r14
+    mov r14, rax
+    call mem_free
+    mov rdi, r14
+    call vfs_is_dir
+    mov r15d, eax
+    test eax, eax
+    jz 3f
+    mov rdi, r14
+    mov rsi, [rip + g_project]
+.ifdef WINDOWS
+    call win_path_equal
+.else
+    call strcmp_eq
+.endif
+    test eax, eax
+    jz 3f
+    mov [rbx], r12
+    xor r12d, r12d
+3:  mov rdi, r14
+    call mem_free
+    test r15d, r15d
+    jz 1b
+7:  mov rdi, r13
+    call mem_free
+8:  mov rdi, r12
+    call mem_free
+9:  EPILOGUE
+
+# FN cmd_add_workspace_folder(): always choose the project directory first.
+FN cmd_add_workspace_folder
+    PROLOGUE
+    call workspace_add_cancel
+    mov edi, 2
+    call browse_open_kind
+    EPILOGUE
+
+# FN workspace_add_ui(path): command-line additions retain their noninteractive behavior.
+FN workspace_add_ui
+    xor esi, esi
+    jmp ws_add_from_ui
+
+# FN workspace_add_picked_ui(path): the picker may ask for a definition destination.
+FN workspace_add_picked_ui
+    mov esi, 1
+ws_add_from_ui:
+    PROLOGUE
+    mov r15d, esi
+    call ws_path_clean
+    mov rbx, rax
+    test r15d, r15d
+    jz 3f
+    cmp qword ptr [rip + g_project], 0
+    je 3f
+    mov rdi, rbx
+    call ws_check
+    test rax, rax
+    jnz 2f
+    cmp qword ptr [rip + g_ws_file], 0
+    jne 3f
+    call ws_find_definition
+    test rax, rax
+    jz 4f
+    mov r12, rax
+    mov rdi, rax
+    call workspace_open_file
+    mov rdi, r12
+    call mem_free
+    cmp qword ptr [rip + g_ws_file], 0
+    jne 3f
+4:  call workspace_add_cancel
+    mov [rip + ws_add_pending], rbx
+    mov rdi, [rip + g_project]
+    call dup_cstr
+    mov [rip + ws_add_project], rax
+    mov edi, 3                 # select the definition's destination directory next
+    call browse_open_kind
+    jmp 9f
+3:  mov rdi, rbx
     call workspace_add
     test rax, rax
-    jns 9f
-    lea rdi, [rip + .Lt_nested]
+    js 2f
+    test edx, edx
+    jz 8f
+    lea rdi, [rip + .Lt_added]
+    call app_toast
+    jmp 8f
+2:  lea rdi, [rip + .Lt_nested]
     cmp rax, -22
     je 1f
     lea rdi, [rip + .Lt_already]
@@ -1272,6 +1559,8 @@ FN workspace_add_ui
     je 1f
     lea rdi, [rip + .Lt_not_folder]
 1:  call app_toast
+8:  mov rdi, rbx
+    call mem_free
 9:  EPILOGUE
 
 # FN cmd_remove_workspace_folder(): the active document's folder (or the explorer's selection's)
@@ -1303,6 +1592,31 @@ FN cmd_remove_workspace_folder
     EPILOGUE
 
 # FN c_print_folders(out, args, len): print-folders: "folder=ID name=N path=P flags=F" a line
+FN c_print_workspace
+    PROLOGUE
+    mov rbx, rdi
+    lea rsi, [rip + .Lp_workspace]
+    call sb_push_cstr
+    mov rsi, [rip + g_ws_file]
+    test rsi, rsi
+    jz 1f
+    mov rdi, rbx
+    call sb_push_cstr
+1:  mov rdi, rbx
+    lea rsi, [rip + .Lp_title]
+    call sb_push_cstr
+    call wfold_title
+    mov rsi, rax
+    test rsi, rsi
+    jz 2f
+    mov rdi, rbx
+    call sb_push_cstr
+2:  mov rdi, rbx
+    mov esi, 10
+    call sb_push_byte
+    xor eax, eax
+    EPILOGUE
+
 FN c_print_folders
     PROLOGUE
     mov r12, rdi
@@ -1415,6 +1729,7 @@ ws_carry_for: .quad 0           # the project the carried folders are for (owned
 .Lws_head: .asciz "# rhun workspace: its folders, and workspace settings for extensions ([owner/name] sections)\n[folders]\n"
 .Lws_path: .asciz "path = "
 .Lask_save: .asciz "Save the workspace as"
+.Lt_added: .asciz "Folder added to workspace"
 .Ldefault_name: .asciz "workspace.rhun-workspace"
 .Lt_no_folder: .asciz "The workspace file names no folder that is there"
 .Lt_write: .asciz "The workspace file could not be written"
@@ -1426,6 +1741,8 @@ ws_carry_for: .quad 0           # the project the carried folders are for (owned
 .Lt_no_remove: .asciz "Only a workspace of two folders or more has one to remove"
 .Lr_folders: .asciz "restarting after the workspace folders changed"
 .Lp_folder: .asciz "folder="
+.Lp_workspace: .asciz "workspace="
+.Lp_title: .asciz " title="
 .Lp_name: .asciz " name="
 .Lp_path: .asciz " path="
 .Lp_flags: .asciz " flags="

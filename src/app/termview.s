@@ -30,6 +30,8 @@ F TS_unchecked, 4       # lines not given to its matchers (too many at once)
 F TS_tap, SB_SIZE       # finished lines for its tap (term.s), then TS_tapfn
 F TS_tapfn, 8           # fn(cookie, TERM, line, len) for each finished line, or 0
 F TS_tapcookie, 8
+F TS_view, 80          # per-session geometry, selection and mouse state
+F TS_cwd, 8            # owned initial folder, fallback when process cwd is unavailable
 ENDSTRUCT TS_SIZE
 .equ TSF_RUNNING, 1             # started and not yet ended
 .equ TSF_EOF, 2                 # its terminal reached the end of its output
@@ -63,6 +65,7 @@ ENDSTRUCT TS_SIZE
 sessions: .zero VEC_SIZE        # TS*
 session_next_id: .quad 0
 cur: .quad 0
+draw_session: .quad 0
 env: .quad 0
 .globl g_face_term, g_term_open
 g_face_term: .zero FACE_SIZE
@@ -92,12 +95,16 @@ sel_b: .quad 0                  # other end
 sel_s: .quad 0                  # ordered and extended to the unit
 sel_e: .quad 0
 scroll_px: .long 0
+rep_cell: .long 0
 tick_poll: .quad 0              # time_ms of the last exit poll of running programs
 env_noted: .long 0              # a tab said the login environment could not be read
 msg: .zero SB_SIZE              # a footer or message for a program's tab
 .p2align 3
 out_frame: .quad 0              # time_ms of the last frame output asked for
 out_due: .quad 0                # time_ms of the next, held back while output keeps coming (0: none)
+shell_title_poll: .quad 0
+shell_title_sb: .zero SB_SIZE
+shell_cwd: .zero 4096
 link_on: .long 0                # the link under the pointer: 1 a URL, 2 a file (link_find)
 link_line: .long 0              # a file's :LINE:COL, 0 when not given
 link_col: .long 0
@@ -131,6 +138,11 @@ sess:
 # cur_sess() -> TS* or 0
 cur_sess:
     xor eax, eax
+    cmp qword ptr [rip + draw_session], 0
+    je 2f
+    mov rax, [rip + draw_session]
+    ret
+2:
     mov rdi, [rip + cur]
     cmp rdi, [rip + sessions + VEC_len]
     jae 1f
@@ -204,7 +216,7 @@ term_metrics:
 
 # term_spawn() -> 1 if a shell started
 FN term_spawn
-    PROLOGUE 48
+    PROLOGUE 64
     call room_for_one
     test eax, eax
     jz .Lsp_fail
@@ -245,6 +257,39 @@ FN term_spawn
     mov [rsp + 8], rax
     mov qword ptr [rsp + 16], 0
 .Lsp_argv:
+.ifdef WINDOWS
+    # PowerShell's Set-Location does not update the process cwd. Add OSC 7 to this
+    # shell's prompt after its normal profile loaded; never touch a profile on disk.
+    mov rdi, r12
+    call strlen
+    mov rdi, r12
+    mov rsi, rax
+    call path_basename
+    mov r15, rax
+    mov rdi, rax
+    mov rsi, rdx
+    lea rdx, [rip + .Lpowershell_name]
+    call str_ieq_cstr
+    test eax, eax
+    jnz .Lsp_powershell
+    mov rdi, r15
+    call strlen
+    mov rsi, rax
+    mov rdi, r15
+    lea rdx, [rip + .Lpwsh_name]
+    call str_ieq_cstr
+    test eax, eax
+    jz .Lsp_pty
+.Lsp_powershell:
+    lea rax, [rip + .Lps_noexit]
+    mov [rsp + 8], rax
+    lea rax, [rip + .Lps_command]
+    mov [rsp + 16], rax
+    lea rax, [rip + .Lps_prompt]
+    mov [rsp + 24], rax
+    mov qword ptr [rsp + 32], 0
+.Lsp_pty:
+.endif
     mov edi, 80
     mov esi, 24
     call pty_open
@@ -253,6 +298,7 @@ FN term_spawn
     mov r13d, eax               # master
     mov r14d, edx               # slave
     call wfold_cwd              # resources group: the active document's workspace folder (workspace.s)
+    mov [rsp + 40], rax
     mov rdx, rax
     lea rdi, [rsp]
     mov rsi, [rip + env]
@@ -279,6 +325,12 @@ FN term_spawn
     mov [rbx + TS_id], rax
     mov [rbx + TS_pid], r15d
     mov [rbx + TS_fd], r13d
+    mov rdi, [rsp + 40]
+    test rdi, rdi
+    jz 31f
+    call dup_cstr
+    mov [rbx + TS_cwd], rax
+31:
     mov edi, 80
     mov esi, 24
     mov edx, [rip + cfg_term_scrollback]
@@ -301,7 +353,9 @@ FN term_spawn
     inc rdi
     dec ecx
     jnz 4b
-5:  lea rdi, [rip + sessions]
+5:  mov rdi, rbx
+    call shell_title_update
+    lea rdi, [rip + sessions]
     mov esi, 8
     call vec_push
     mov [rax], rbx
@@ -338,6 +392,7 @@ FN term_spawn
     mov [rsp], rax
     mov qword ptr [rsp + 8], 0
     call wfold_cwd              # resources group: the active document's workspace folder
+    mov [rsp + 40], rax
     mov rdx, rax
     lea rdi, [rsp]
     mov rsi, [rip + env]
@@ -477,6 +532,7 @@ flush_wbuf:
 session_end:
     PROLOGUE
     mov rbx, rdi
+    call term_layout_closed
     cmp dword ptr [rbx + TS_kind], TK_SHELL
     je 1f
     call session_close_program
@@ -545,6 +601,8 @@ session_end:
     lea rdi, [rbx + TS_tap]
     call sb_free
     mov rdi, [rbx + TS_title]
+    call mem_free
+    mov rdi, [rbx + TS_cwd]
     call mem_free
     mov rdi, [rbx + TS_spec]
     call mem_free
@@ -625,9 +683,107 @@ FN term_tick
     mov [rip + out_frame], rax
     mov qword ptr [rip + out_due], 0
     mov dword ptr [rip + g_dirty], 1
-0:  call programs_tick
+0:  call shell_titles_tick
+    call programs_tick
     pop rbx
     ret
+
+# Keep shell tabs tied to their current folder, independently of arbitrary OSC titles.
+shell_titles_tick:
+    PROLOGUE
+    cmp qword ptr [rip + sessions + VEC_len], 0
+    je 9f
+    call time_ms
+    cmp rax, [rip + shell_title_poll]
+    jb 9f
+    add rax, 500
+    mov [rip + shell_title_poll], rax
+    xor ebx, ebx
+1:  cmp rbx, [rip + sessions + VEC_len]
+    jae 9f
+    mov rdi, rbx
+    call sess
+    mov rdi, rax
+    cmp dword ptr [rdi + TS_kind], TK_SHELL
+    jne 2f
+    call shell_title_update
+2:  inc rbx
+    jmp 1b
+9:  EPILOGUE
+
+# shell_title_update(session): shell basename + '+' + current folder basename.
+shell_title_update:
+    PROLOGUE
+    mov rbx, rdi
+.ifdef WINDOWS
+    mov rax, [rbx + TS_term]
+    cmp qword ptr [rax + TM_cwd + SB_len], 0
+    je 0f
+    mov r12, [rax + TM_cwd + SB_ptr]
+    mov rax, [rax + TM_cwd + SB_len]
+    jmp 12f
+0:
+.endif
+    mov edi, [rbx + TS_pid]
+    lea rsi, [rip + shell_cwd]
+    mov edx, 4096
+    call proc_cwd
+    test rax, rax
+    jg 1f
+    mov r12, [rbx + TS_cwd]
+    test r12, r12
+    jnz 11f
+    lea r12, [rip + .Lshell_root]
+11: mov rdi, r12
+    call strlen
+    jmp 12f
+1:  lea r12, [rip + shell_cwd]
+12: mov r13, rax
+    # Ignore trailing separators, except the filesystem root itself.
+2:  cmp r13, 1
+    jbe 3f
+    cmp byte ptr [r12 + r13 - 1], '/'
+    jne 3f
+    dec r13
+    jmp 2b
+3:  lea rdi, [rip + shell_title_sb]
+    call sb_clear
+    lea rdi, [rip + shell_title_sb]
+    lea rsi, [rbx + TS_name]
+    call sb_push_cstr
+    lea rdi, [rip + shell_title_sb]
+    mov esi, '+'
+    call sb_push_byte
+    mov rdi, r12
+    mov rsi, r13
+    call path_basename
+    test rdx, rdx
+    jnz 4f
+    mov rax, r12
+    mov rdx, r13
+4:  lea rdi, [rip + shell_title_sb]
+    mov rsi, rax
+    call sb_push
+    lea rdi, [rip + shell_title_sb]
+    xor esi, esi
+    call sb_push_byte
+    mov rdi, [rbx + TS_title]
+    test rdi, rdi
+    jz 5f
+    mov rsi, [rip + shell_title_sb + SB_ptr]
+    call strcmp_eq
+    test eax, eax
+    jnz 9f
+5:  mov rdi, [rbx + TS_title]
+    call mem_free
+    mov rdi, [rip + shell_title_sb + SB_ptr]
+    call dup_cstr
+    mov [rbx + TS_title], rax
+    mov dword ptr [rip + g_dirty], 1
+9:  EPILOGUE
+.section .rodata
+.Lshell_root: .asciz "/"
+.text
 
 # ---------------- programs: task and extension terminals ----------------
 # A program other than the user's shell runs in a tab of its own (term_run): a task, a terminal an
@@ -2754,6 +2910,8 @@ FN term_panel_key
     mov r13d, esi
     mov r14d, edx
     test r14d, MOD_SUPER
+    call term_layout_key_state
+    test r14d, MOD_SUPER
     jnz .Ltk_no
     # debugger: while a session lives its keys reach rhun from the terminal too (debugview.s)
     mov edi, r12d
@@ -2780,6 +2938,23 @@ FN term_panel_key
 .endif
     jmp .Ltk_send
 .Ltk_unbound:
+    # Personal pane controls and input-mode switching belong to rhun. Respect
+    # their configured bindings rather than writing control bytes into the PTY.
+    lea rcx, [rip + cmd_toggle_chinese]
+    cmp rax, rcx
+    je .Ltk_no
+    lea rcx, [rip + cmd_split_terminal_right]
+    cmp rax, rcx
+    je .Ltk_no
+    lea rcx, [rip + cmd_split_terminal_down]
+    cmp rax, rcx
+    je .Ltk_no
+    lea rcx, [rip + cmd_next_terminal_pane]
+    cmp rax, rcx
+    je .Ltk_no
+    lea rcx, [rip + cmd_input_chinese]
+    cmp rax, rcx
+    je .Ltk_no
     call cur_sess
     test rax, rax
     jz .Ltk_no
@@ -2883,6 +3058,14 @@ FN term_panel_key
     mov dword ptr [rax + TM_view], 0
     mov dword ptr [rip + sel_on], 0
 .Ltk_yes:
+    cmp qword ptr [rip + tl_root], 0
+    je .Ltk_saved
+    call cur_sess
+    test rax, rax
+    jz .Ltk_saved
+    mov rdi, rax
+    call tl_save
+.Ltk_saved:
     mov dword ptr [rip + g_dirty], 1
     mov eax, 1
     EPILOGUE
@@ -2905,6 +3088,8 @@ view_scroll:
     ret
 
 # ---------------- drawing ----------------
+
+.include "app/termlayout.inc"
 
 # term_panel_draw(x, y, w, h)
 FN term_panel_draw
@@ -2964,9 +3149,23 @@ FN term_panel_draw
     call places_panel_body      # a view tab is chosen: it draws the body instead of a terminal
     test eax, eax
     jnz .Lpd_ret
+    mov edi, [rsp]
+    mov esi, [rsp + 4]
+    mov edx, [rsp + 8]
+    mov ecx, [rsp + 12]
+    call term_layout_draw
+.Lpd_ret:
+    EPILOGUE
+
+term_grid_draw:
+    PROLOGUE 64
+    mov [rsp], edi
+    mov [rsp + 4], esi
+    mov [rsp + 8], edx
+    mov [rsp + 12], ecx
     call cur_sess
     test rax, rax
-    jz .Lpd_ret
+    jz .Lgrid_ret
     mov rbx, rax
     mov r12, [rbx + TS_term]
     # grid
@@ -3051,7 +3250,7 @@ FN term_panel_draw
     push rax
     mov eax, [rsp + 32 + 8]
     push rax
-    mov edi, ID_TSCROLL
+    mov edi, [rip + grid_scroll_id]
     mov esi, [rsp + 16 + 16]
     add esi, [rsp + 16 + 24]
     mov edx, [rsp + 16 + 20]
@@ -3060,8 +3259,9 @@ FN term_panel_draw
     lea r9, [rip + scroll_px]
     call ui_scrollbar
     add rsp, 16
-    cmp dword ptr [rip + g_active], ID_TSCROLL
-    jne .Lpd_ret
+    mov eax, [rip + grid_scroll_id]
+    cmp dword ptr [rip + g_active], eax
+    jne .Lgrid_ret
     mov eax, [rip + scroll_px]
     xor edx, edx
     div dword ptr [rip + tlh]
@@ -3070,7 +3270,7 @@ FN term_panel_draw
     jns 7f
     xor ecx, ecx
 7:  mov [r12 + TM_view], ecx
-.Lpd_ret:
+.Lgrid_ret:
     EPILOGUE
 
 # header_draw(): session tabs and buttons (frame of term_panel_draw at [rsp + 8 + 8])
@@ -3183,7 +3383,7 @@ header_draw:
     mov rdi, rbx
     call sess
     mov r13, rax
-    # a program's label with its state before it; a shell's title from the program, else its name
+    # Program labels retain their state; shell labels show shell + current folder.
     mov dword ptr [rsp + 40], 0
     cmp dword ptr [r13 + TS_kind], TK_SHELL
     je 0f
@@ -3195,11 +3395,9 @@ header_draw:
 19: mov [rsp + 40], eax
     mov rsi, [r13 + TS_title]
     jmp 13f
-0:  mov r14, [r13 + TS_term]
-    mov rsi, [r14 + TM_title + SB_ptr]
-    mov rdx, [r14 + TM_title + SB_len]
-    test rdx, rdx
-    jnz 1f
+0:  mov rsi, [r13 + TS_title]
+    test rsi, rsi
+    jnz 13f
     lea rsi, [r13 + TS_name]
 13:
     mov rdi, rsi
@@ -4054,6 +4252,16 @@ draw_grid:
     jz 5f
     add eax, eax
 5:  mov [rsp + 8], eax          # w
+    cmp dword ptr [rip + g_focus], FOCUS_TERMINAL
+    jne .Lterm_ime_anchor_done
+    mov eax, [rsp]
+    mov [rip + g_ime_x], eax
+    mov eax, [rsp + 4]
+    mov [rip + g_ime_y], eax
+    mov eax, [rip + tlh]
+    mov [rip + g_ime_h], eax
+    mov dword ptr [rip + g_ime_valid], 1
+.Lterm_ime_anchor_done:
     # without focus: an outline
     cmp dword ptr [rip + g_focus], FOCUS_TERMINAL
     jne 6f
@@ -5334,7 +5542,6 @@ FN term_count
     ret
 
 .data
-rep_cell: .long -1
 
 .section .rodata
 .Lst_more: .asciz " +"
@@ -5344,6 +5551,11 @@ rep_cell: .long -1
 .Llogin: .asciz "-l"
 .ifdef WINDOWS
 .Lsh: .asciz "powershell.exe"
+.Lpowershell_name: .asciz "powershell.exe"
+.Lpwsh_name: .asciz "pwsh.exe"
+.Lps_noexit: .asciz "-NoExit"
+.Lps_command: .asciz "-Command"
+.Lps_prompt: .asciz "$global:__rhunOriginalPrompt=$function:prompt; function global:prompt { try { $p=$ExecutionContext.SessionState.Path.CurrentFileSystemLocation.ProviderPath; $u=[System.Uri]::new($p); [Console]::Write([char]27+']7;'+$u.AbsoluteUri+[char]7) } catch {}; & $global:__rhunOriginalPrompt }"
 .else
 .Lsh: .asciz "/bin/sh"
 .endif
@@ -5422,9 +5634,15 @@ rep_cell: .long -1
 .Lm_paste: .asciz "Paste"
 .Lm_clear: .asciz "Clear"
 .Lm_kill: .asciz "Kill Terminal"
+.Lm_split_right: .asciz "Split Right"
+.Lm_split_down: .asciz "Split Down"
+.Lm_next_pane: .asciz "Focus Next Pane"
+.Lm_unsplit: .asciz "Show Active Pane Only"
 .p2align 3
 env_extras: .quad .Lenv_term, .Lenv_color, .Lenv_prog, 0
 term_menu:
+    .quad .Lm_split_right, cmd_split_terminal_right, .Lm_split_down, cmd_split_terminal_down
+    .quad .Lm_next_pane, cmd_next_terminal_pane, .Lm_unsplit, cmd_unsplit_terminal
     .quad .Lm_copy, cmd_term_copy, .Lm_paste, cmd_term_paste, .Lm_clear, cmd_clear_terminal
     .quad .Lm_kill, cmd_kill_terminal, 0, 0
 
