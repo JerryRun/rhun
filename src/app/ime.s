@@ -2,7 +2,7 @@
 .include "rhun.inc"
 .bss
 .p2align 3
-ime_preedit: .zero SB_SIZE
+ime_inline_preedit: .zero SB_SIZE
 ime_candidates: .zero SB_SIZE
 ime_selected: .long 0
 ime_rows: .long 0
@@ -17,7 +17,7 @@ g_ime_h: .long 0
 g_ime_valid: .long 0
 .text
 FN ime_has_preedit
-    mov rax, [rip + ime_preedit + SB_len]
+    mov rax, [rip + ime_inline_preedit + SB_len]
     ret
 
 # Identity for resetting a composition when focus moves between documents, panes or fields.
@@ -68,11 +68,11 @@ FN ime_set_preedit
     PROLOGUE
     mov r12, rdi
     mov r13, rsi
-    lea rdi, [rip + ime_preedit]
+    lea rdi, [rip + ime_inline_preedit]
     call sb_clear
     cmp r13, 4096
     ja 9f
-    lea rdi, [rip + ime_preedit]
+    lea rdi, [rip + ime_inline_preedit]
     mov rsi, r12
     mov rdx, r13
     call sb_push
@@ -80,7 +80,7 @@ FN ime_set_preedit
     EPILOGUE
 
 FN ime_clear
-    lea rdi, [rip + ime_preedit]
+    lea rdi, [rip + ime_inline_preedit]
     jmp sb_clear
 
 FN ime_candidates_clear
@@ -175,13 +175,13 @@ FN ime_pointer
 FN ime_draw
     PROLOGUE 32
     mov dword ptr [rip + ime_box + 12], 0
-    cmp qword ptr [rip + ime_preedit + SB_len], 0
+    cmp qword ptr [rip + ime_inline_preedit + SB_len], 0
     je 9f
     cmp dword ptr [rip + g_ime_valid], 0
     je 9f
     lea rdi, [rip + g_face_ui]
-    mov rsi, [rip + ime_preedit + SB_ptr]
-    mov rdx, [rip + ime_preedit + SB_len]
+    mov rsi, [rip + ime_inline_preedit + SB_ptr]
+    mov rdx, [rip + ime_inline_preedit + SB_len]
     call text_width
     mov r14d, eax
     xor ebx, ebx
@@ -247,8 +247,8 @@ FN ime_draw
     add esi, [rip + g_mt + 4*MI_6]
     mov edx, r13d
     M ecx, MI_28
-    mov r8, [rip + ime_preedit + SB_ptr]
-    mov r9, [rip + ime_preedit + SB_len]
+    mov r8, [rip + ime_inline_preedit + SB_ptr]
+    mov r9, [rip + ime_inline_preedit + SB_len]
     COLOR eax, T_FG
     push rax
     push rax

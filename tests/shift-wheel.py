@@ -30,7 +30,7 @@ class ShiftWheel(unittest.TestCase):
         config.parent.mkdir(parents=True)
         config.write_text('[files]\nrestore_session = false\nrestore_project = false\n'
                           '[updates]\ncheck = false\n[git]\nenabled = false\n'
-                          '[editor]\ncursor_blink = false\n'
+                          '[editor]\ncursor_blink = false\nscroll_sensitivity = 1.0\n'
                           '[ui]\nagents_panel = false\nsidebar = false\nauto_hide_scrollbars = false\n'
                           '[terminal]\nshell = /bin/sh\n', encoding='utf-8')
         self.env = dict(os.environ, HOME=str(self.work), XDG_CONFIG_HOME=str(self.work / 'config'),

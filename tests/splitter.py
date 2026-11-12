@@ -253,7 +253,7 @@ class SidebarSplit(unittest.TestCase):
         self.assertIn('sel=0', v['state'])
 
     def test_scrollbar_flashes_on_scroll_then_hides(self):
-        a, b, c = self.shots(['wait 200', 'move 500 400', 'shot{0}', 'scroll 600', 'wait 60', 'shot{1}',
+        a, b, c = self.shots(['wait 200', 'move 500 400', 'shot{0}', 'scroll 1200', 'wait 60', 'shot{1}',
                               'wait 1000', 'shot{2}'])
         thumb = [(x, y) for y in (200, 300, 400, 500) for x in range(985, 1000)]
         # scrolling alone reveals the thumb without hovering the track

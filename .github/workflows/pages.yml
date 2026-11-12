@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.repository == 'vshvedov/rhun'
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

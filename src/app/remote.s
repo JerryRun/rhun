@@ -3972,7 +3972,7 @@ rm_rq_ready: .long 0
 .Lrlog_bad: .asciz "protocol error from "
 .Lrlog_download: .asciz "downloading the Linux release "
 # sh -c SCRIPT sh VERSION DEST
-.Ldl_script: .ascii "set -e; base=${RHUN_RELEASES_URL:-https://github.com/vshvedov/rhun/releases}; v=$1; out=$2; "
+.Ldl_script: .ascii "set -e; base=${RHUN_RELEASES_URL:-https://github.com/JerryRun/rhun/releases}; v=$1; out=$2; "
     .ascii "tmp=$(mktemp -d); trap 'rm -rf \"$tmp\"' EXIT; name=rhun-$v-linux-x86_64.tar.gz; "
     .ascii "curl -fsSL --connect-timeout 10 --retry 3 -o \"$tmp/$name\" \"$base/download/v$v/$name\"; "
     .ascii "curl -fsSL --connect-timeout 10 --retry 3 -o \"$tmp/SHA256SUMS\" \"$base/download/v$v/SHA256SUMS\"; "

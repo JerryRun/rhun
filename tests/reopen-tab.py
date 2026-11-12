@@ -321,7 +321,7 @@ class ReopenClosedTab(unittest.TestCase):
         subprocess.run([*git, 'commit', '-q', '-m', 'one'], check=True)
         with open(self.project / 'a.txt', 'a', encoding='utf-8') as f:
             f.write('more\n')
-        self.write_config(git=True)
+        self.write_config(git=True, extra='[editor]\nside_diff = false\n')
         self.start()
         self.command('wait-git')
         self.open('a.txt')

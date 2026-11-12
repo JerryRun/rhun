@@ -1,5 +1,6 @@
 # A version tag (tools/release.sh) builds, tests, signs and publishes rhun. The release is created as
 # a draft and published last, so releases/latest never points at one without its files.
+# Forks publish Linux and Windows; signed macOS and winget remain upstream-only.
 # Secrets: MACOS_CERT_P12, MACOS_CERT_PASSWORD (Developer ID Application certificate, base64 .p12)
 # and APPLE_API_KEY_P8, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID (App Store Connect API key, base64 .p8).
 # Every Mac release is notarized and stapled, and its ZIP and disk image pass Gatekeeper before upload.
@@ -16,14 +17,29 @@ concurrency:
   group: release-${{ github.ref }}
 
 jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify a version tag from main
+        shell: bash
+        run: |
+          test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)"
+          git merge-base --is-ancestor HEAD origin/main
+
   linux:
+    needs: verify
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: The tag is VERSION
         run: test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)"
-      - name: Tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq binutils curl git python3 xvfb openbox xdotool x11-utils sway gcc pkg-config libwayland-dev wayland-protocols
+      - name: Ubuntu package indexes
+        run: sudo bash tools/setup-linux-desktop.sh update
+      - name: Desktop tools
+        run: sudo bash tools/setup-linux-desktop.sh install
       - name: Tests
         run: tests/run.sh
       - name: Installer tests
@@ -46,6 +62,10 @@ jobs:
           cp assets/icons/rhun.svg "$r/share/icons/hicolor/scalable/apps/"
           cp assets/icons/rhun-256.png "$r/share/icons/hicolor/256x256/apps/rhun.png"
           cp assets/icons/rhun-512.png "$r/share/icons/hicolor/512x512/apps/rhun.png"
+          mkdir -p "$r/tools" "$r/build"
+          cp tools/run-personal.sh tools/run-fcitx.sh tools/setup-fcitx.sh "$r/tools/"
+          ln -s ../bin/rhun "$r/build/rhun"
+          cp docs/linux-release.md "$r/README-WSL.md"
           cp LICENSE "$r/"
           cp assets/licenses/LICENSE-Unicode.txt "$r/"
           test "$("$r/bin/rhun" --version)" = "rhun $v"
@@ -57,6 +77,8 @@ jobs:
           if-no-files-found: error
 
   macos:
+    needs: verify
+    if: github.repository == 'vshvedov/rhun'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -114,6 +136,7 @@ jobs:
         run: security delete-keychain "$RUNNER_TEMP/rhun.keychain-db" 2>/dev/null || true
 
   windows:
+    needs: verify
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -206,7 +229,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [linux, macos, windows]
+    needs: [verify, linux, macos, windows]
+    if: ${{ always() && needs.verify.result == 'success' && needs.linux.result == 'success' && needs.windows.result == 'success' && (needs.macos.result == 'success' || needs.macos.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -217,11 +241,15 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Checksums, version and installer
+        env:
+          MACOS_BUILT: ${{ needs.macos.result == 'success' }}
         run: |
           v=$(cat VERSION)
           test -s "dist/rhun-$v-linux-x86_64.tar.gz"
-          test -s "dist/rhun-$v-macos-arm64.zip"
-          test -s "dist/rhun-$v-macos-arm64.dmg"
+          if [ "$MACOS_BUILT" = true ]; then
+            test -s "dist/rhun-$v-macos-arm64.zip"
+            test -s "dist/rhun-$v-macos-arm64.dmg"
+          fi
           test -s "dist/rhun-$v-windows-x86_64.zip"
           cp install.sh install.ps1 dist/
           cat VERSION > dist/VERSION
@@ -251,7 +279,7 @@ jobs:
   # from WINGET_TOKEN's fork of it (a classic token with public_repo). Prereleases stay off winget.
   winget:
     needs: publish
-    if: ${{ !contains(github.ref_name, '-') }}
+    if: ${{ github.repository == 'vshvedov/rhun' && !contains(github.ref_name, '-') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

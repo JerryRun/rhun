@@ -4095,7 +4095,17 @@ draw_caret:
     mov eax, [rip + g_lh]
     mov [rip + g_ime_h], eax
     mov dword ptr [rip + g_ime_valid], 1
+    cmp dword ptr [rip + g_preedit_len], 0
+    je 10f
+    # an input method's composition at the caret, a thin caret after it (ime.s)
+    call ime_preedit_draw
+    mov [rsp], eax
     call ed_caret_shown
+    test eax, eax
+    jz 9f
+    mov edi, [rsp]
+    jmp 11f
+10: call ed_caret_shown
     test eax, eax
     jz 9f
     mov edi, [rip + g_caret_x]

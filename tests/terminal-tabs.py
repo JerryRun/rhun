@@ -21,9 +21,17 @@ class TerminalTabs(unittest.TestCase):
                         XDG_STATE_HOME=(self.home / 'state').as_posix())
         config = self.home / 'config/rhun/config'
         config.parent.mkdir(parents=True)
-        # Python provides the same interactive terminal and OSC titles on every platform.
+        self.project = self.home / ('a' if os.name == 'nt' else 'tabs')
+        self.project.mkdir()
+        self.shell = self.home / 'py'
+        if os.name != 'nt':
+            self.shell.symlink_to(sys.executable)
+        else:
+            self.shell = Path(sys.executable)
+        self.tab_width = 118 if os.name == 'nt' else 86
+        # Python provides an interactive terminal; shell+folder labels are deterministic.
         config.write_text('[ui]\nsidebar = false\nagents_panel = false\n'
-                          '[terminal]\nshell = ' + Path(sys.executable).as_posix() + '\n'
+                          '[terminal]\nshell = ' + self.shell.as_posix() + '\n'
                           '[updates]\ncheck = false\n[git]\nenabled = false\n', encoding='utf-8')
 
     def tearDown(self):
@@ -44,7 +52,7 @@ class TerminalTabs(unittest.TestCase):
                       'key Return', 'wait 200']
         script = self.home / 'commands.rsc'
         script.write_text('\n'.join([*lines, *actions, 'quit']) + '\n', encoding='utf-8')
-        result = subprocess.run([str(EXE), str(self.home), '--headless', f'{width}x700',
+        result = subprocess.run([str(EXE), str(self.project), '--headless', f'{width}x700',
                                  '--script', str(script)], env=self.env, capture_output=True,
                                 text=True, encoding='utf-8', timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -58,8 +66,8 @@ class TerminalTabs(unittest.TestCase):
         self.assertEqual((magic, maximum), (b'P6', b'255'))
         width, height = map(int, dimensions.split())
         self.assertEqual((width, height), (1000, 700))
-        # Fixed UI metrics: 66 px tabs, 20 px close target inside each tab.
-        x = 46 + tab * 66
+        # Fixed UI metrics: 86 px tabs, 20 px close target inside each tab.
+        x = self.tab_width - 20 + tab * self.tab_width
         return b''.join(pixels[(y * width + x) * 3:(y * width + x + 20) * 3]
                         for y in range(418, 438))
 
@@ -69,7 +77,7 @@ class TerminalTabs(unittest.TestCase):
         away = self.home / 'away.ppm'
         actions = ['move 500 200', f'shot {idle.as_posix()}']
         for i, shot in enumerate(shots):
-            actions += [f'move {18 + i * 66} 428', f'shot {shot.as_posix()}']
+            actions += [f'move {18 + i * self.tab_width} 428', f'shot {shot.as_posix()}']
         actions += ['move 500 200', f'shot {away.as_posix()}']
         self.run_editor(actions)
         for i, shot in enumerate(shots):
@@ -82,7 +90,7 @@ class TerminalTabs(unittest.TestCase):
                 self.assertEqual(before, self.close_crop(away, tab))
 
     def test_closing_inactive_tab_preserves_current_terminal(self):
-        output = self.run_editor(['move 56 428', 'down', 'print-state', 'print-term',
+        output = self.run_editor([f'move {self.tab_width - 10} 428', 'down', 'print-state', 'print-term',
                                   'up', 'print-state', 'print-term'])
         states = self.states(output)
         self.assertEqual(len(states), 2, output)
@@ -92,9 +100,9 @@ class TerminalTabs(unittest.TestCase):
         self.assertNotIn('SESSION_0', output)
 
     def test_middle_active_and_last_tabs_close_individually(self):
-        output = self.run_editor(['click 122 428', 'print-state', 'print-term',
-                                  'click 122 428', 'print-state', 'print-term',
-                                  'click 56 428', 'print-state'])
+        output = self.run_editor([f'click {2 * self.tab_width - 10} 428', 'print-state', 'print-term',
+                                  f'click {2 * self.tab_width - 10} 428', 'print-state', 'print-term',
+                                  f'click {self.tab_width - 10} 428', 'print-state'])
         states = self.states(output)
         self.assertEqual(len(states), 3, output)
         self.assertIn('term=2', states[0])
@@ -126,7 +134,7 @@ class TerminalTabs(unittest.TestCase):
                   'key ctrl+shift+Tab', 'key ctrl+shift+Tab', 'click 20 428', 'print-term', 'quit']
         script = self.home / 'commands.rsc'
         script.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-        result = subprocess.run([str(EXE), str(self.home), '--headless', '600x700',
+        result = subprocess.run([str(EXE), str(self.project), '--headless', '600x700',
                                  '--script', str(script)], env=self.env, capture_output=True,
                                 text=True, encoding='utf-8', timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)

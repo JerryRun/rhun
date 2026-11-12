@@ -3,6 +3,8 @@
 .text
 wl_ime_sync:
     PROLOGUE 16
+    cmp dword ptr [rip + id_ti], 0
+    jne .Lims_done
     call fcitx_active
     test eax, eax
     jz .Lims_native

@@ -20,6 +20,7 @@ rhun draws everything itself: it rasterizes TrueType fonts, icons and widgets in
 - Vim mode, off by default: normal, insert and visual modes, operators, text objects, counts, `.`, search and `:` commands
 - Characters missing from the built-in fonts are drawn with the system's fonts
 - Every XKB layout, dead keys and the Compose key (the system's Compose rules, `~/.XCompose` or `$XCOMPOSEFILE`)
+- Input methods such as IBus and Fcitx: text-input-v3 on Wayland, XIM on X11 (the one `XMODIFIERS=@im=NAME` names); the composition shows at the editor's caret
 - Files changed on disk are reloaded, open files are restored per project
 - Wayland with fractional scaling; X11 as a fallback
 - macOS on Apple silicon: Retina displays, input methods and dead keys, full screen, signed with a Developer ID
@@ -134,8 +135,8 @@ opencode = false
 On Linux and macOS:
 
 ```sh
-curl -fsSL https://github.com/vshvedov/rhun/releases/latest/download/install.sh | sh
-wget -qO- https://github.com/vshvedov/rhun/releases/latest/download/install.sh | sh   # without curl
+curl -fsSL https://github.com/JerryRun/rhun/releases/latest/download/install.sh | sh
+wget -qO- https://github.com/JerryRun/rhun/releases/latest/download/install.sh | sh   # without curl
 ```
 
 The installer needs no root. It checks the download against the release's SHA-256 checksums, and on macOS also that the app is signed by rhun's developer.
@@ -174,7 +175,7 @@ Updates refresh file handler registration without asking about or changing defau
 `--configure-files --make-default` command enables defaults without reinstalling:
 
 ```sh
-curl -fsSL https://github.com/vshvedov/rhun/releases/latest/download/install.sh | sh -s -- --configure-files --make-default
+curl -fsSL https://github.com/JerryRun/rhun/releases/latest/download/install.sh | sh -s -- --configure-files --make-default
 ```
 
 Use `--prefix` or `--app-dir` too if rhun is installed somewhere else. This configures the metadata
@@ -223,10 +224,10 @@ tools/package-mac.sh   # build/rhun-VERSION-macos-arm64.zip and .dmg
 
 The Windows build targets Windows 10 version 1809 or later and Windows 11, on x64. Native ARM64 is not included. Releases are signed once SignPath Foundation accepts rhun (see the [code signing policy](https://rhun.app/code-signing/)); until then Windows may display an unknown-publisher warning for the unsigned download.
 
-Download `rhun-VERSION-windows-x86_64.zip` from [Releases](https://github.com/vshvedov/rhun/releases/latest), extract it, and open `rhun.exe`. Keep `rhun.com` beside it for terminal use. For a Start menu shortcut and a terminal command, paste this into PowerShell:
+Download `rhun-VERSION-windows-x86_64.zip` from [Releases](https://github.com/JerryRun/rhun/releases/latest), extract it, and open `rhun.exe`. Keep `rhun.com` beside it for terminal use. For a Start menu shortcut and a terminal command, paste this into PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; & ([scriptblock]::Create((New-Object Net.WebClient).DownloadString('https://github.com/vshvedov/rhun/releases/latest/download/install.ps1')))"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; & ([scriptblock]::Create((New-Object Net.WebClient).DownloadString('https://github.com/JerryRun/rhun/releases/latest/download/install.ps1')))"
 ```
 
 The installer verifies SHA-256, installs under `%LOCALAPPDATA%\Programs\rhun`, adds a Start menu shortcut and updates your user PATH. Open a new terminal after installation. Options are `-Version X`, `-InstallDir DIR`, `-NoModifyPath`, `-NoShortcut`, `-NoUrlScheme` (no `rhun://file/` links), and `-Uninstall`. It refuses to replace a running editor or a directory containing unrelated files. Use the status bar to download an update and restart into it, or close rhun and rerun the installer. Automatic checks are enabled for release builds, with installation and restart initiated by you. Uninstalling keeps settings and sessions.
@@ -276,9 +277,25 @@ Outputs are in `build/windows`, separate from Mac and Linux builds. On Windows u
 
 ### Releases
 
-`VERSION` holds the version. `tools/release.sh 0.16.0` writes it, commits, tags `v0.16.0` and pushes; the tag starts `.github/workflows/release.yml`, which tests and builds Linux, macOS and Windows, signs the Mac app, and publishes the release with the archives, `SHA256SUMS`, `VERSION`, `install.sh` and `install.ps1`. The release stays a draft until everything is uploaded, so rhun and the installer never see a version without its files. A version with a dash (`0.16.0-rc1`) is published as a prerelease, which they do not take for the latest.
+Release from main after merging and testing changes. Enable GitHub Actions in the fork, then run:
 
-The workflow needs five repository secrets: `MACOS_CERT_P12` and `MACOS_CERT_PASSWORD` (the Developer ID Application certificate with its key, exported as .p12, base64), and `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER_ID` (an App Store Connect API key for notarization, the .p8 in base64). Every Mac release is notarized by Apple and includes a ZIP and disk image with stapled tickets. The packaged downloads must pass signature, ticket and Gatekeeper checks before upload. Missing credentials, rejected notarization or failed verification stop publication.
+    git switch main
+    git pull --ff-only origin main
+    ./tools/release.sh 0.19.3
+
+Choose an unused version. The helper updates VERSION, creates an English version commit and
+annotated tag, and atomically pushes main and the tag. The v* tag starts release.yml. CI verifies
+that the tag matches VERSION and belongs to main, tests and builds Linux and Windows, then
+publishes both archives, SHA256SUMS, VERSION, install.sh and install.ps1 to this repository's
+GitHub Releases. The release stays a draft until all assets have been uploaded. No personal access
+token or signing secret is required for the fork's unsigned Windows and Linux packages.
+A version containing a dash is published as a prerelease, excluded from automatic latest updates.
+
+Signed macOS releases and winget submission run only in the upstream repository. Its macOS job
+requires MACOS_CERT_P12, MACOS_CERT_PASSWORD, APPLE_API_KEY_P8, APPLE_API_KEY_ID and
+APPLE_API_ISSUER_ID. Fork releases skip that job without blocking Linux and Windows publication.
+The Linux archive includes the optional project-local WSL launch/setup scripts; see README-WSL.md
+inside the archive. Private Fcitx packages are downloaded separately, never installed system-wide.
 
 ### Website
 

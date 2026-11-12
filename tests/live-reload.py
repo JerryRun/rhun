@@ -2,7 +2,6 @@
 """External writes reload open files, keep local edits, and briefly mark the affected code."""
 import os
 from pathlib import Path
-import re
 import shutil
 import socket
 import subprocess
@@ -13,22 +12,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 EXE = Path(os.environ.get('RHUN_TEST_EXE', ROOT / 'build/rhun')).resolve()
-
-
-def settings_row_y(section, key):
-    """The middle of a row on the unscrolled Settings page, laid out as tests/settings-ui.py does."""
-    y, previous = 268, None
-    for line in (ROOT / 'src/app/config.s').read_text(encoding='utf-8').splitlines():
-        match = re.match(r'\s+SETTING(?:_ACTION)? \.Ls_(\w+), (\w+), (\w+)', line)
-        if not match or match.group(2) == 'theme':
-            continue
-        if match.group(1) != previous:
-            y += 48
-            previous = match.group(1)
-        if (match.group(1), match.group(2)) == (section, key):
-            return y + 32
-        y += 72
-    raise KeyError(key)
 
 
 @unittest.skipIf(os.name == 'nt', 'the control socket is Unix only')
@@ -449,9 +432,9 @@ class LiveReload(unittest.TestCase):
             return {key: value for key, sep, value in pairs if sep}
         before = settings()
         self.command('cmd settings')
-        self.command('move 500 350')
-        self.command('scroll 1500')
-        y = settings_row_y('editor', 'animate_disk_changes') - 1500
+        self.command('key ctrl+f')
+        self.command('type editor.animate_disk_changes')
+        y = 348
         self.command(f'click 827 {y}')
         self.command('quit')
         self.process.wait(timeout=5)

@@ -18,6 +18,9 @@ FN git_open_changes
     PROLOGUE
     mov r12, rsi
     mov r13, rdx
+    xor ebx, ebx
+    cmp dword ptr [rip + cfg_side_diff], 0
+    je 2f
     mov rdi, [rip + g_git_root]
     mov rsi, r12
     call path_join

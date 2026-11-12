@@ -11,6 +11,7 @@
 
 .equ MAXPTS, 8192
 .equ MAXCONT, 1024
+.equ FB_MAX, 32                 # room in fb_fonts and fb_state for fallback_paths' entries
 
 .bss
 .p2align 4
@@ -899,7 +900,7 @@ render_glyph:
     EPILOGUE
 
 # fallback_glyph(cp) -> rax FONT* and edx glyph id from the first system font that has cp, or 0
-fallback_glyph:
+FN fallback_glyph
     PROLOGUE 16
     mov r12d, edi
     mov rdi, [rip + fb_custom]
@@ -1241,11 +1242,13 @@ FN text_draw_fit
 
 .bss
 .p2align 3
-fb_fonts: .zero 8 * 16
-fb_state: .zero 16
+.globl fb_fonts
+fb_fonts: .zero 8 * FB_MAX
+fb_state: .zero FB_MAX
 
 .section .rodata
 .p2align 3
+.globl fallback_paths
 fallback_paths:
 .ifdef WINDOWS
     .quad .Lfw1, .Lfw2, .Lfw3, .Lfw4, .Lfw5, 0
@@ -1262,7 +1265,8 @@ fallback_paths:
 .Lfm3: .asciz "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
 .Lfm4: .asciz "/Library/Fonts/Arial Unicode.ttf"
 .else
-    .quad .Lfb1, .Lfb2, .Lfb3, .Lfb4, .Lfb5, .Lfb6, .Lfb7, .Lfb8, .Lfb9, .Lfb_wsl, .Lfb_wsl2, 0
+    .quad .Lfb1, .Lfb2, .Lfb3, .Lfb4, .Lfb5, .Lfb6, .Lfb7, .Lfb8, .Lfb9, .Lfb10, .Lfb11, .Lfb12
+    .quad .Lfb13, .Lfb14, .Lfb15, .Lfb16, .Lfb17, .Lfb18, .Lfb19, .Lfb20, .Lfb_wsl, .Lfb_wsl2, 0
 .endif
 .endif
 .Lfb1: .asciz "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
@@ -1272,8 +1276,22 @@ fallback_paths:
 .Lfb5: .asciz "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf"
 .Lfb6: .asciz "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf"
 .Lfb7: .asciz "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf"
-.Lfb8: .asciz "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"
-.Lfb9: .asciz "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc"
+# Hangul (Debian and Ubuntu paths, then Fedora's), all before Droid, whose only syllables are 가, 힢
+# and 힣: a word would mix two fonts. Noto Sans CJK, what Ubuntu installs for Korean, has CFF
+# outlines, which font_load does not read.
+.Lfb8: .asciz "/usr/share/fonts/truetype/nanum/NanumGothicCoding.ttf"
+.Lfb9: .asciz "/usr/share/fonts/naver-nanum-gothic-coding-fonts/NanumGothic_Coding.ttf"
+.Lfb10: .asciz "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+.Lfb11: .asciz "/usr/share/fonts/naver-nanum-gothic-fonts/NanumGothic.ttf"
+.Lfb12: .asciz "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
+.Lfb13: .asciz "/usr/share/fonts/wqy-microhei-fonts/wqy-microhei.ttc"
+.Lfb14: .asciz "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc"
+.Lfb15: .asciz "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+.Lfb16: .asciz "/usr/share/fonts/wqy-zenhei-fonts/wqy-zenhei.ttc"
+.Lfb17: .asciz "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf"
+.Lfb18: .asciz "/usr/share/fonts/un-core-dotum-fonts/UnDotum.ttf"
+.Lfb19: .asciz "/usr/share/fonts/truetype/baekmuk/gulim.ttf"
+.Lfb20: .asciz "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"
 .Lfb_wsl: .asciz "/mnt/c/Windows/Fonts/msyh.ttc"
 .Lfb_wsl2: .asciz "/mnt/c/Windows/Fonts/simsun.ttc"
 .p2align 2

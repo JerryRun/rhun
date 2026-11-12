@@ -93,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix='rhun-installer-') as temporary:
     def paste(target):
         """run the README's PowerShell command as pasted into PowerShell, plus options for a test install:
         it fetches install.ps1 from the test server, which serves it as GitHub does"""
-        github = 'https://github.com/vshvedov/rhun/releases'
+        github = 'https://github.com/JerryRun/rhun/releases'
         line = next(line for line in (ROOT / 'README.md').read_text(encoding='utf-8').splitlines()
                     if line.startswith('powershell ') and github + '/latest/download/install.ps1' in line)
         assert line.endswith('"'), line

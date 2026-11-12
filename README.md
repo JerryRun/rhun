@@ -11,19 +11,19 @@
 On Linux (x86-64) or macOS (Apple silicon), run:
 
 ```sh
-curl -fsSL https://github.com/vshvedov/rhun/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/JerryRun/rhun/releases/latest/download/install.sh | sh
 ```
 
 Or use `wget`:
 
 ```sh
-wget -qO- https://github.com/vshvedov/rhun/releases/latest/download/install.sh | sh
+wget -qO- https://github.com/JerryRun/rhun/releases/latest/download/install.sh | sh
 ```
 
 On Windows 10 (1809 or later) or Windows 11:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; & ([scriptblock]::Create((New-Object Net.WebClient).DownloadString('https://github.com/vshvedov/rhun/releases/latest/download/install.ps1')))"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; & ([scriptblock]::Create((New-Object Net.WebClient).DownloadString('https://github.com/JerryRun/rhun/releases/latest/download/install.ps1')))"
 ```
 
 ## Why rhun

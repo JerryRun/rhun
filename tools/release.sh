@@ -18,5 +18,5 @@ if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then die "v$v exists"; 
 printf '%s\n' "$v" > VERSION
 git commit -q -m "Version $v" VERSION
 git tag -a "v$v" -m "rhun $v"
-git push -q origin main "v$v"
+git push --atomic -q origin main "v$v"
 echo "pushed v$v; the release workflow builds it: gh run watch"
