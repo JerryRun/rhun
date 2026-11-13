@@ -152,11 +152,21 @@ class Folding(FoldBase):
         config = self.work / 'config/rhun/config'
         config.write_text(config.read_text() + '[editor]\nscroll_past_end = false\n')
         (self.proj / 'big.rs').write_text(''.join(f'x{i}();\n' for i in range(300)), encoding='utf-8')
-        out = self.run_p(['move 500 300', 'scroll 40', 'print-viewport', 'cmd goto_line', 'type 250',
-                          'key Return', 'print-viewport'], files=('big.rs',))
-        tops = [int(l.split('top=')[1].split()[0]) for l in out if l.startswith('view ')]
-        self.assertGreater(tops[0], 1)
+        out = self.run_p(['move 500 300', 'scroll 40', 'print-viewport', 'print-scroll',
+                          'cmd goto_line', 'type 250', 'key Return', 'print-viewport',
+                          'scroll 100000', 'print-viewport', 'print-scroll',
+                          'scroll -100000', 'print-viewport', 'print-scroll'], files=('big.rs',))
+        views = [l for l in out if l.startswith('view ')]
+        tops = [int(l.split('top=')[1].split()[0]) for l in views]
+        offsets = [int(l.split('y=')[1].split()[0]) for l in out if l.startswith('x=')]
+        # The slower default wheel can move less than a line: the first visible
+        # line stays the same while the fractional scroll offset increases.
+        self.assertGreater(offsets[0], 0, out)
         self.assertGreater(tops[1], 200)
+        self.assertGreater(tops[2], tops[1], out)
+        visible_rows = int(views[2].split('rows=')[1].split()[0])
+        self.assertLessEqual(tops[2] + visible_rows - 1, 301, out)
+        self.assertEqual((tops[3], offsets[2]), (1, 0), out)
 
     def test_folding_off_restores_and_hides_nothing(self):
         config = self.work / 'config/rhun/config'
