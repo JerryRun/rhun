@@ -150,7 +150,7 @@ with tempfile.TemporaryDirectory(prefix='rhun-launch-') as directory:
         # the file's folder is the project, but not remembered as the last one
         assert command('print-project') == 'project=' + str(work) + '\n'
         # a file launch is a quick edit: no explorer or agents panel
-        assert command('print-panels') == 'explorer=0 agents=0 term=0\n'
+        assert command('print-panels') == 'explorer=0 agents=0 term=0 git=0 timeline=0 terminal_position=0\n'
         assert marker.read_bytes() == previous
         until(active, 'file launch did not bring rhun to the foreground')
         command('quit')

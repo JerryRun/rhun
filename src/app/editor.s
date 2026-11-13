@@ -1118,6 +1118,10 @@ copy_to_clip:
     EPILOGUE
 
 FN cmd_copy
+    cmp dword ptr [rip + g_focus], FOCUS_GIT
+    jne .Lcopy_not_git
+    ret
+.Lcopy_not_git:
     sub rsp, 8
     xor edi, edi
     call mdpreview_clip
@@ -1258,6 +1262,10 @@ FN ed_paste
     EPILOGUE
 
 FN cmd_select_all
+    cmp dword ptr [rip + g_focus], FOCUS_GIT
+    jne .Lselect_not_git
+    ret
+.Lselect_not_git:
     sub rsp, 8
     mov edi, 2
     call mdpreview_clip

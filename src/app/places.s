@@ -265,6 +265,14 @@ FN place_focus
     call place_at
     test rax, rax
     jz 9f
+    cmp ebx, [rip + g_git_timeline_place]
+    je 8f
+    cmp ebx, [rip + g_git_history_place]
+    jne 7f
+8:  mov dword ptr [rip + g_focus], FOCUS_GIT
+    mov dword ptr [rip + g_dirty], 1
+    jmp 9f
+7:
     cmp ebx, [rip + g_explorer_place]
     jne 1f
     pop rbx
@@ -584,6 +592,7 @@ FN sidebar_draw
     mov [rsp + 4], esi
     mov [rsp + 8], edx
     mov [rsp + 12], ecx
+    call git_sidebar_sync
     mov edi, PLACE_SIDEBAR
     lea rsi, [rip + sb_order]
     call place_list
@@ -727,6 +736,16 @@ section_header:
     test eax, UB_CLICK
     jz 2f
     xor dword ptr [r12 + PL_flags], PLF_COLLAPSED
+    test dword ptr [r12 + PL_flags], PLF_COLLAPSED
+    jnz .Lsection_git_focus_done
+    cmp ebx, [rip + g_git_history_place]
+    je .Lsection_git_focus
+    cmp ebx, [rip + g_git_timeline_place]
+    jne .Lsection_git_focus_done
+.Lsection_git_focus:
+    mov dword ptr [rip + g_focus], FOCUS_GIT
+.Lsection_git_focus_done:
+    call git_sidebar_sync
     mov dword ptr [rip + g_dirty], 1
 2:  # chevron
     M ecx, MI_16
@@ -1619,11 +1638,12 @@ FN places_init
     xor r8d, r8d
     call place_add
     mov [rip + g_explorer_place], eax
+    call git_sidebar_init
     EPILOGUE
 
 .section .rodata
 .Lexp_name: .asciz "explorer"
-.Lexp_title: .asciz "Explorer"
+.Lexp_title: .asciz "Explore"
 .p2align 3
 explorer_ops:
     .quad explorer_body_draw, 0, 0, 0, explorer_actions, 0

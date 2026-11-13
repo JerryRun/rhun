@@ -123,8 +123,25 @@ commit_edit:
     add rbx, rcx
     lea rdi, [rip + set_tf]
     call tf_text
+    mov r12, rax
+    mov r13, rdx
+    lea rcx, [rip + cfg_chinese_toggle_key]
+    cmp [rbx + SET_ptr], rcx
+    jne .Ledit_string_valid
+    test r13, r13
+    jz .Ledit_string_valid
+    mov rdi, r12
+    mov rsi, r13
+    call parse_chinese_toggle
+    test eax, eax
+    jnz .Ledit_string_valid
+    lea rdi, [rip + .Linvalid_chinese_hotkey]
+    call app_toast
+    jmp 9f
+.Ledit_string_valid:
     mov rdi, rbx
-    mov rsi, rax
+    mov rsi, r12
+    mov rdx, r13
     call setting_assign
     mov rdi, rbx
     call setting_applied
@@ -149,6 +166,9 @@ FN setting_applied
     cmp rax, rcx
     je 1f
     lea rcx, [rip + cfg_ui_font]
+    cmp rax, rcx
+    je 1f
+    lea rcx, [rip + cfg_fallback_font]
     cmp rax, rcx
     je 1f
     lea rcx, [rip + cfg_term_font]
@@ -1614,6 +1634,7 @@ FN ui_text_v_fit
 .section .rodata
 .Ltitle: .asciz "Settings"
 .Lsearch: .asciz "Search settings"
+.Linvalid_chinese_hotkey: .asciz "Invalid shortcut. Use Ctrl+Shift or Ctrl+Alt+Space."
 .Lchinese_hotkey: .asciz "Chinese / English hotkey"
 .Lchinese_query: .asciz "chinese_toggle_key"
 .Lchinese_aliases: .asciz "中文 中英文切换 输入法 快捷键 热键"

@@ -1,4 +1,4 @@
-# source control: the history's work tree row, as VS Code's Source Control view. A commit message with
+# Source control sidebar: the working tree, commit message and repository actions. A commit message with
 # Commit (or Sync Changes, Publish Branch when there is nothing to commit), Pull, Push and Fetch, and the
 # changes by group: merge conflicts, staged, not staged, each file to stage, unstage or discard
 .include "rhun.inc"
@@ -317,7 +317,7 @@ msg_blank:
 3:  xor eax, eax
     ret
 
-# scm_focus(): the history with the work tree selected, typing in the commit message
+# scm_focus(): reveal the Source Control panel and focus the commit message
 FN scm_focus
     push rbx
     cmp dword ptr [rip + g_git_on], 0
@@ -342,13 +342,10 @@ FN scm_key
     mov r12d, edi
     mov r13d, esi
     mov r14d, edx
-    # only while the history shows it
-    mov rdi, [rip + g_tab_cur]
-    test rdi, rdi
-    js 8f
-    call tab_at
-    cmp qword ptr [rax + TAB_kind], TAB_GIT
-    jne 8f
+    cmp dword ptr [rip + g_git_panel], 0
+    je 8f
+    cmp dword ptr [rip + g_show_side], 0
+    je 8f
     cmp r12d, KEY_ESCAPE
     jne 1f
     mov dword ptr [rip + g_focus], FOCUS_EDITOR
@@ -1373,7 +1370,7 @@ take_path:
 
 # ---------------- drawing ----------------
 
-# scm_draw(x, y, w, h): the panel right of the history, for the work tree
+# scm_draw(x, y, w, h): working tree actions and changes
 FN scm_draw
     PROLOGUE 32
     mov [rip + pan], edi
@@ -1409,7 +1406,7 @@ FN scm_draw
     mov dword ptr [rip + scroll], 0
 13: call pan_args
     call gfx_clip_push
-    M eax, MI_16
+    M eax, MI_12
     mov ecx, [rip + pan]
     add ecx, eax
     mov [rip + in_x], ecx
@@ -1499,6 +1496,15 @@ FN scm_draw
     add r13d, [rip + g_mt + 4*MI_8]
     # Pull, Push, Fetch
     mov edi, r13d
+    mov eax, [rip + g_mt + 4*MI_48]
+    imul eax, eax, 7
+    cmp [rip + pan + 8], eax
+    jge .Lscm_wide_actions
+    call draw_compact_remote
+    add r13d, [rip + g_mt + 4*MI_32]
+    add r13d, [rip + g_mt + 4*MI_8]
+    jmp .Lscm_actions_done
+.Lscm_wide_actions:
     call draw_remote
     add r13d, [rip + g_mt + 4*MI_28]
     add r13d, [rip + g_mt + 4*MI_8]
@@ -1507,6 +1513,7 @@ FN scm_draw
     call draw_reset
     add r13d, [rip + g_mt + 4*MI_28]
     add r13d, [rip + g_mt + 4*MI_8]
+.Lscm_actions_done:
     # what went wrong last
     mov edi, r13d
     call draw_error
@@ -1627,6 +1634,13 @@ pan_args:
 
 # placeholder() -> the commit message's hint, with the branch
 placeholder:
+    mov eax, [rip + g_mt + 4*MI_48]
+    imul eax, eax, 7
+    cmp [rip + pan + 8], eax
+    jge 9f
+    lea rax, [rip + .Lcompact_message]
+    ret
+9:
     push rbx
     lea rdi, [rip + lbl]
     call sb_clear
@@ -1694,11 +1708,31 @@ draw_branch:
     jne 1f
     lea r8, [rip + .Lhead]
 1:  lea rdi, [rip + g_face_ui]
+    mov rdi, r8
+    call strlen
+    mov r9, rax
+    mov eax, [rip + in_x]
+    add eax, [rip + in_w]
+    sub eax, r12d
+    sub eax, [rsp]
+    sub eax, [rip + g_mt + 4*MI_8]
+    mov ecx, 1
+    cmp eax, ecx
+    cmovl eax, ecx
+    push rax
+    COLOR eax, T_FG
+    push rax
+    lea rdi, [rip + g_face_ui]
     mov esi, r12d
     mov edx, r13d
     mov ecx, r15d
-    COLOR r9d, T_FG
-    call ui_text_c
+    lea r8, [rip + g_branch]
+    cmp byte ptr [r8], 0
+    jne .Lbranch_fit
+    lea r8, [rip + .Lhead]
+.Lbranch_fit:
+    call ui_text_v_fit
+    add rsp, 16
     add eax, [rip + g_mt + 4*MI_8]
     mov r12d, eax
     # "→ origin/main", or what it is instead
@@ -1892,6 +1926,59 @@ push_count:
     pop rbx
 9:  ret
 
+# A single compact toolbar keeps actions usable in the default narrow sidebar.
+draw_compact_remote:
+    PROLOGUE 16
+    mov r13d, edi
+    mov eax, [rip + in_w]
+    sub eax, [rip + g_mt + 4*MI_12]
+    xor edx, edx
+    mov ecx, 4
+    div ecx
+    mov r14d, eax
+    xor ebx, ebx
+1:  lea rdi, [rip + lbl]
+    call sb_clear
+    mov eax, r14d
+    add eax, [rip + g_mt + 4*MI_4]
+    imul eax, ebx
+    add eax, [rip + in_x]
+    mov esi, eax
+    lea edi, [rbx + ID_SCM_PULL]
+    lea rax, [rip + remote_icons]
+    xor r9d, r9d
+    cmp ebx, 3
+    jae 8f
+    movzx r9d, byte ptr [rax + rbx]
+8:
+    cmp ebx, 3
+    jne 2f
+    mov edi, ID_SCM_RESET
+    mov r9d, IC_DISCARD
+2:  mov edx, r13d
+    mov ecx, r14d
+    M r8d, MI_32
+    call draw_button
+    test eax, eax
+    jz 6f
+    test ebx, ebx
+    jnz 3f
+    call cmd_git_pull
+    jmp 6f
+3:  cmp ebx, 1
+    jne 4f
+    call cmd_git_push
+    jmp 6f
+4:  cmp ebx, 2
+    jne 5f
+    call cmd_git_fetch
+    jmp 6f
+5:  call cmd_git_reset_all
+6:  inc ebx
+    cmp ebx, 4
+    jb 1b
+    EPILOGUE
+
 # draw_remote(y): Pull, Push and Fetch, side by side
 draw_remote:
     PROLOGUE 16
@@ -2048,6 +2135,10 @@ center_label:
     add ebx, [rip + g_mt + 4*MI_ICON]
     add ebx, [rip + g_mt + 4*MI_6]
 1:  mov r12d, [rsp + 8]
+    sub r12d, [rip + g_mt + 4*MI_16]
+    cmp ebx, r12d
+    cmovg ebx, r12d
+    mov r12d, [rsp + 8]
     sub r12d, ebx
     sar r12d, 1
     add r12d, [rsp]
@@ -2063,7 +2154,14 @@ center_label:
     add r12d, [rip + g_mt + 4*MI_ICON]
     add r12d, [rip + g_mt + 4*MI_6]
 2:  mov eax, [rsp + 20]
-    push rax
+    mov ecx, [rsp]
+    add ecx, [rsp + 8]
+    sub ecx, [rip + g_mt + 4*MI_8]
+    sub ecx, r12d
+    mov edx, 1
+    cmp ecx, edx
+    cmovl ecx, edx
+    push rcx
     push rax
     lea rdi, [rip + g_face_ui]
     mov esi, r12d
@@ -2071,7 +2169,7 @@ center_label:
     mov ecx, [rsp + 16 + 12]
     mov r8, [rip + lbl + SB_ptr]
     mov r9, [rip + lbl + SB_len]
-    call ui_text_v
+    call ui_text_v_fit
     add rsp, 16
     EPILOGUE
 
@@ -2082,6 +2180,12 @@ draw_group:
     mov r13d, esi
     M r15d, MI_28
     lea rax, [rip + group_titles]
+    mov ecx, [rip + g_mt + 4*MI_48]
+    imul ecx, ecx, 7
+    cmp [rip + pan + 8], ecx
+    jge .Lgroup_titles_ready
+    lea rax, [rip + compact_group_titles]
+.Lgroup_titles_ready:
     mov r8, [rax + rbx*8]
     lea rdi, [rip + g_face_small]
     mov esi, [rip + in_x]
@@ -2728,6 +2832,7 @@ FN scm_dump_files
 
 .section .rodata
 .Lno_repo: .asciz "No git repository"
+.Lcompact_message: .asciz "Commit message"
 .Lbusy: .asciz "Wait for the git command that runs"
 .Lconflicts: .asciz "Resolve the conflicts and stage the files first"
 .Lnothing: .asciz "No changes to commit"
@@ -2898,6 +3003,11 @@ mb_names:
 # by GG_*
 group_titles:
     .quad 0, .Lg_merge, .Lg_staged, .Lg_changes
+compact_group_titles:
+    .quad 0, .Lg_compact_merge, .Lg_compact_staged, .Lg_compact_changes
+.Lg_compact_merge: .asciz "Conflicts"
+.Lg_compact_staged: .asciz "Staged"
+.Lg_compact_changes: .asciz "Changes"
 remote_labels:
     .quad .Lr_pull, .Lr_push, .Lr_fetch
 remote_icons:

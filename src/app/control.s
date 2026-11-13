@@ -1492,7 +1492,7 @@ c_print_git:
     xor eax, eax
     ret
 
-# print-gitlog: the history tab's graph and the selected row's files
+# print-gitlog: the timeline graph and the selected row's files
 c_print_gitlog:
     lea rdi, [rip + out]
     call gitview_dump
@@ -2482,7 +2482,7 @@ ctl_table:
 appearance_rows:
     .quad .Ls_theme_eq, cfg_theme, .Ls_dark_eq, cfg_dark_theme, .Ls_light_eq, cfg_light_theme, 0
 panel_rows:
-    .quad .Ls_explorer_eq, g_show_side, .Ls_agents_eq, g_show_agents, .Ls_term, g_term_open, 0
+    .quad .Ls_explorer_eq, g_show_side, .Ls_agents_eq, g_show_agents, .Ls_term, g_term_open, .Ls_git_panel, g_git_panel, .Ls_git_timeline, g_git_timeline, .Ls_term_position, cfg_term_position, 0
 
 .data
 lsock: .long -1
@@ -2498,3 +2498,8 @@ click_mods: .long 0             # c_click: the modifiers its press and release c
 pp_buf: .zero 4096
 
 CSTR .Lwindows_control, "rhun: --control is unavailable on Windows; use --script FILE"
+
+.section .rodata
+.Ls_git_panel: .asciz " git="
+.Ls_git_timeline: .asciz " timeline="
+.Ls_term_position: .asciz " terminal_position="

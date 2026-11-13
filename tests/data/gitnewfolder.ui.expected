@@ -1,6 +1,7 @@
 action=commit-all
     CHANGES
-    U notes/
+    U notes/drafts/two.txt
+    U notes/one.txt
 action=commit-all
     CHANGES
     U notes/drafts/two.txt
@@ -10,11 +11,11 @@ action=commit-all
     CHANGES
     U notes/drafts/two.txt
     U notes/one.txt
-tabs=2 active=one.txt (changes) line=1 col=1 sel=0 dirty=0 lang=none focus=0 theme=rhun-dark
-@@ -0,0 +1 @@
+tabs=1 active=one.txt line=1 col=1 sel=0 dirty=0 lang=none focus=0 theme=rhun-dark
 first note
+
 <eod>
-tabs=3 active=two.txt (changes) line=1 col=1 sel=0 dirty=0 lang=none focus=0 theme=rhun-dark
-@@ -0,0 +1 @@
+tabs=2 active=two.txt line=1 col=1 sel=0 dirty=0 lang=none focus=0 theme=rhun-dark
 deep
+
 <eod>

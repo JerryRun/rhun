@@ -317,6 +317,8 @@ ENDSTRUCT RECT_SIZE
 .equ KEY_ISO_LEFT_TAB, 0xfe20
 .equ KEY_DELETE, 0xffff
 
+.equ KEY_IME_MODIFIERS, 0x110001 # internal modifier-only IME gesture
+
 .equ MOD_SHIFT, 1
 .equ MOD_CTRL, 4
 .equ MOD_ALT, 8
@@ -1162,8 +1164,11 @@ ENDSTRUCT MK_SIZE
 # return 0 at once when the document is read-only: g_doc, or the one in reg
 .macro READONLY_RET reg=0
 .ifc \reg,0
+    cmp dword ptr [rip + g_focus], FOCUS_GIT
+    je .Lro_block\@
     cmp dword ptr [rip + g_focus], FOCUS_MD_PREVIEW
     jne .Lro_preview\@
+.Lro_block\@:
     xor eax, eax
     ret
 .Lro_preview\@:
@@ -1905,6 +1910,7 @@ ENDSTRUCT TAB_SIZE
 .equ FOCUS_AGENTS, 6
 .equ FOCUS_PROMPT, 7
 .equ FOCUS_TERMINAL, 8
+.equ FOCUS_GIT, 71              # source control timeline navigation
 .equ FOCUS_SCM, 9               # the commit message
 .equ FOCUS_MD_PREVIEW, 70       # native Markdown preview: selection, links, keyboard scrolling
 .equ FOCUS_AGENT_INPUT, 56      # AI (D4): the prompt box of an extension's agent session

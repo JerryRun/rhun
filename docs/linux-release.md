@@ -16,5 +16,6 @@ an existing dbus-run-session and /usr/bin/python3 with dbus and GLib bindings;
 if they are missing, it stops. The runtime is not bundled in this archive.
 The launcher stores its configuration and state inside build/personal in this directory.
 Ctrl+Alt+Space toggles Chinese/English; customize it in Settings.
-Existing Windows fonts are used when present; Windows fonts are not redistributed.
+The built-in Iosevka is used by default, with system fallback for Chinese.
+Windows fonts can be configured manually and are not redistributed.
 Use bin/rhun directly if the private input engine is not needed.

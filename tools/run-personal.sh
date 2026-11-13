@@ -14,30 +14,18 @@ if [ ! -f "$config" ]; then
 
 # Personal WSL profile. Editable from Settings.
 [editor]
+font =
+fallback_font =
 font_size = 16
 side_diff = true
 [terminal]
+font =
 font_size = 15
 line_height = 1.15
 [ui]
+font =
 font_size = 14
 CONFIG
-    if [ -f /mnt/c/Windows/Fonts/consola.ttf ]; then
-        cat >> "$config" <<'CONFIG'
-[editor]
-font = /mnt/c/Windows/Fonts/consola.ttf
-[terminal]
-font = /mnt/c/Windows/Fonts/consola.ttf
-CONFIG
-    fi
-    if [ -f /mnt/c/Windows/Fonts/msyh.ttc ]; then
-        cat >> "$config" <<'CONFIG'
-[editor]
-fallback_font = /mnt/c/Windows/Fonts/msyh.ttc
-[ui]
-font = /mnt/c/Windows/Fonts/msyh.ttc
-CONFIG
-    fi
 fi
 export XDG_CONFIG_HOME="$profile/config"
 export XDG_STATE_HOME="$profile/state"

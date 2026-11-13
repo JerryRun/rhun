@@ -181,7 +181,13 @@ FN wfold_title
     jbe 87f
     lea rcx, [rip + ws_name]
     mov byte ptr [rcx + rax - 15], 0
-87: lea rax, [rip + ws_name]
+87: lea rdi, [rip + ws_name]
+    call strlen
+    lea rdi, [rip + ws_name]
+    add rdi, rax
+    lea rsi, [rip + .Lworkspace_title_suffix]
+    call cstr_copy
+    lea rax, [rip + ws_name]
     EPILOGUE
 0:  mov rax, [rip + g_project_name]
     cmp qword ptr [rip + ws_folders + VEC_len], 2
@@ -690,7 +696,8 @@ FN workspace_reset
     jmp 4b
 7:  mov rdi, r12
     call mem_free
-8:  EPILOGUE
+8:  call session_remember_workspace
+    EPILOGUE
 
 # ws_add_quiet(path): added when it may be (a folder that went is skipped)
 ws_add_quiet:
@@ -745,6 +752,7 @@ ws_save:
 # folder, or absolute), then [owner/name] sections with extensions' workspace settings (extconfig.s).
 
 # ws_is_file(path) -> eax 1 when the path names a .rhun-workspace file
+FN workspace_is_file
 ws_is_file:
     PROLOGUE
     mov rbx, rdi
@@ -1024,6 +1032,7 @@ FN workspace_save_as
     mov rdi, [rip + g_ws_file]
     call mem_free
     mov [rip + g_ws_file], r12
+    call session_remember_workspace
     mov rdi, r13
     call mem_free
     call app_update_title
@@ -1722,6 +1731,7 @@ ws_carry_for: .quad 0           # the project the carried folders are for (owned
 .section .rodata
 .Lext_folders: .asciz ".folders"
 .Lsuffix: .asciz ".rhun-workspace"
+.Lworkspace_title_suffix: .asciz " (WORKSPACE)"
 .Lsec_folders: .asciz "folders"
 .Lsec_folders_line: .asciz "[folders]"
 .Lk_path: .asciz "path"

@@ -314,7 +314,7 @@ class ReopenClosedTab(unittest.TestCase):
         self.assertIn('Dracula', self.command('print-palette'))
 
     @unittest.skipIf(shutil.which('git') is None, 'git is not installed')
-    def test_git_history_and_diff_views_come_back(self):
+    def test_git_panel_stays_separate_from_reopened_diff_tabs(self):
         git = ['git', '-C', str(self.project), '-c', 'user.name=t', '-c', 'user.email=t@t']
         subprocess.run([*git, 'init', '-q'], check=True)
         subprocess.run([*git, 'add', '.'], check=True)
@@ -327,16 +327,18 @@ class ReopenClosedTab(unittest.TestCase):
         self.open('a.txt')
         self.command('cmd git_changes')
         self.command('cmd git_history')
-        self.assertEqual(self.tabs(), 'tabs=a.txt | a.txt (changes) | *Git')
-        self.command('cmd close_tab')
+        self.assertEqual(self.tabs(), 'tabs=a.txt | *a.txt (changes)')
+        self.assertIn('git=1', self.command('print-panels'))
+        self.command('cmd toggle_git_history')
         self.command('cmd close_tab')
         self.assertEqual(self.tabs(), 'tabs=*a.txt')
         self.reopen()
         self.assertEqual(self.tabs(), 'tabs=a.txt | *a.txt (changes)')
         self.command('wait-git')
         self.assertTrue(self.command('print-doc').startswith('@@ -298,3 +298,4 @@'))
-        self.reopen()
-        self.assertEqual(self.tabs(), 'tabs=a.txt | a.txt (changes) | *Git')
+        self.command('cmd git_history')
+        self.assertEqual(self.tabs(), 'tabs=a.txt | *a.txt (changes)')
+        self.assertIn('git=1', self.command('print-panels'))
 
 
 if __name__ == '__main__':

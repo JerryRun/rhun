@@ -4,18 +4,20 @@
 wait-git
 cmd git_history
 wait-git
-# the folder's row until its files are known
+click 30 54
+# wait for the Source Control panel to expand untracked folders into files
+wait-git
 print-scm
 wait-git
 print-scm
 # the history counts the files the panel lists
 print-gitlog
-click 800 342
+click 80 330
 wait-git
 print-state
 print-doc
 cmd git_history
-click 800 314
+click 80 302
 wait-git
 print-state
 print-doc

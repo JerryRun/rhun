@@ -64,7 +64,8 @@ class CommitWrap(unittest.TestCase):
 
     def test_resize_reflows_without_editing_the_message(self):
         wide = self.marker_position(['key ctrl+Home', 'key Down'])
-        narrow = self.marker_position(['resize 700 700', 'key ctrl+Home', 'key Down'])
+        narrow = self.marker_position(['move 240 350', 'down', 'move 150 350',
+                                       'up', 'wait 50', 'key ctrl+Home', 'key Down'])
         self.assertLess(narrow, wide)
         self.assertGreater(narrow, 0)
 

@@ -1,4 +1,4 @@
-# terminal panel: shells on pseudo-terminals, under the editor
+# Terminal panel: shells on pseudo-terminals, docked below or beside the editor
 .include "rhun.inc"
 
 STRUCT
@@ -54,6 +54,7 @@ ENDSTRUCT TS_SIZE
 .equ ID_TTABX, 0x6200           # + index
 .equ ID_TRESTART, 0x6006      # the current program's Restart and Stop buttons
 .equ ID_TSTOP, 0x6007
+.equ ID_TDOCK, 0x6009
 .equ ID_TSTATUS, 0x6008         # the status bar's running-task item
 .equ MAX_SESS, 32
 .equ RBUF, 65536
@@ -2663,6 +2664,21 @@ program_buttons:
 
 # ---------------- commands ----------------
 
+FN cmd_term_move_bottom
+    xor eax, eax
+    jmp term_set_position
+FN cmd_term_move_right
+    mov eax, 1
+    jmp term_set_position
+FN cmd_term_toggle_position
+    mov eax, [rip + cfg_term_position]
+    xor eax, 1
+term_set_position:
+    mov [rip + cfg_term_position], eax
+    mov dword ptr [rip + g_settings_changed], 1
+    mov dword ptr [rip + g_dirty], 1
+    ret
+
 # cmd_toggle_terminal(): show and focus the panel's terminals, hide it when they have focus
 FN cmd_toggle_terminal
     cmp dword ptr [rip + g_term_open], 0
@@ -3111,7 +3127,9 @@ FN term_panel_draw
     M ecx, MI_1
     COLOR r8d, T_BORDER
     call gfx_fill
-    # the top edge sets the height
+    # The dock's inner edge resizes height at the bottom, width on the right.
+    cmp dword ptr [rip + cfg_term_position], 0
+    jne .Lpd_side_hit
     M eax, MI_3
     mov edi, ID_TSPLIT
     mov esi, [rsp]
@@ -3128,16 +3146,45 @@ FN term_panel_draw
     mov eax, [rsp + 4]
     add eax, [rsp + 12]
     sub eax, [rip + g_my]
+    lea rbx, [rip + cfg_term_h]
+    mov r12d, 80
+    jmp .Lpd_resize
+.Lpd_side_hit:
+    mov edi, [rsp]
+    mov esi, [rsp + 4]
+    M edx, MI_1
+    mov ecx, [rsp + 12]
+    COLOR r8d, T_BORDER
+    call gfx_fill
+    M eax, MI_3
+    mov edi, ID_TSPLIT
+    mov esi, [rsp]
+    sub esi, eax
+    mov edx, [rsp + 4]
+    lea ecx, [rax + rax + 1]
+    mov r8d, [rsp + 12]
+    call ui_btn
+    test eax, UB_HOVER | UB_HELD
+    jz .Lpd_side_drag
+    mov dword ptr [rip + g_cursor], CUR_EW
+.Lpd_side_drag:
+    test eax, UB_HELD
+    jz 2f
+    mov eax, [rsp]
+    add eax, [rsp + 8]
+    sub eax, [rip + g_mx]
+    lea rbx, [rip + cfg_term_w]
+    mov r12d, 160
+.Lpd_resize:
     cvtsi2ss xmm0, eax
     divss xmm0, [rip + g_s]
     cvtss2si eax, xmm0
-    cmp eax, 80
-    jge 11f
-    mov eax, 80
-11: cmp eax, 2000
+    cmp eax, r12d
+    cmovl eax, r12d
+    cmp eax, 2000
     jle 12f
     mov eax, 2000
-12: mov [rip + cfg_term_h], eax
+12: mov [rbx], eax
     mov dword ptr [rip + g_settings_changed], 1
     mov dword ptr [rip + g_dirty], 1
 2:  call header_draw
@@ -3303,6 +3350,7 @@ header_draw:
     mov esi, [rbp + 20]
     mov edx, [rbp + 24]
     sub edx, [rip + g_mt + 4*MI_48]
+    sub edx, [rip + g_mt + 4*MI_28]
     sub edx, [rip + g_mt + 4*MI_12]
     sub edx, ecx
     lea eax, [rdi + rdx]
@@ -3585,6 +3633,34 @@ header_draw:
     mov dword ptr [rip + g_term_open], 0
     mov dword ptr [rip + g_focus], FOCUS_EDITOR
 1:  sub r12d, r13d
+    sub r12d, [rip + g_mt + 4*MI_4]
+    mov edi, ID_TDOCK
+    mov esi, r12d
+    mov edx, r14d
+    mov ecx, r13d
+    mov r8d, r13d
+    mov r9d, IC_PANEL_R
+    cmp dword ptr [rip + cfg_term_position], 0
+    je .Lhd_dock_icon
+    mov r9d, IC_TERMINAL
+.Lhd_dock_icon:
+    call ui_icon_btn
+    mov r8d, eax
+    mov edi, ID_TDOCK
+    mov esi, r12d
+    mov edx, r14d
+    mov ecx, r13d
+    lea r9, [rip + .Ltip_dock_right]
+    cmp dword ptr [rip + cfg_term_position], 0
+    je .Lhd_dock_tip
+    lea r9, [rip + .Ltip_dock_bottom]
+.Lhd_dock_tip:
+    call tip_note_text
+    test eax, UB_CLICK
+    jz .Lhd_dock_done
+    call cmd_term_toggle_position
+.Lhd_dock_done:
+    sub r12d, r13d
     sub r12d, [rip + g_mt + 4*MI_4]
     mov edi, ID_TNEW
     mov esi, r12d
@@ -5691,3 +5767,7 @@ block_table:
     .byte 254, 2, 0, 0
     .byte 254, 6, 0, 0
     .byte 254, 14, 0, 0
+
+.section .rodata
+.Ltip_dock_right: .asciz "Move Panel to Right"
+.Ltip_dock_bottom: .asciz "Move Panel to Bottom"

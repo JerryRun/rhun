@@ -374,8 +374,8 @@ class Folders(lifecycle.Base):
             f'print-vcs {lib}/pkg', f'print-vcs {lib}/top.go', f'print-vcs {app}/src/main.rs', 'print-git',
             f'open {lib}/pkg/p.go', 'wait 100', 'wait-git', 'print-repos', 'print-git',
             f'print-vcs {app}/src/main.rs', f'print-vcs {lib}/pkg/p.go',
-            'cmd git_history', 'wait-git', f'shot {shot}',
-            'click 650 98', 'wait 100', 'wait-git', 'print-repos', 'print-git',  # proj's line
+            'cmd git_history', 'wait-git', 'click 30 54', f'shot {shot}',
+            'click 100 110', 'wait 100', 'wait-git', 'print-repos', 'print-git',  # proj's line
             'repo-show 1', 'wait 100', 'wait-git', 'print-folders', 'folder-remove 2', 'wait 100', 'wait-git',
             'print-repos', 'print-git'])
         marks = [l for l in out if l.startswith(('repo=', 'vcs=', 'git ')) or l.startswith('folder=')]

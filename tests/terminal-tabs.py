@@ -113,7 +113,7 @@ class TerminalTabs(unittest.TestCase):
         self.assertNotIn('SESSION_1', output)
 
     def test_crowded_tabs_do_not_take_toolbar_clicks(self):
-        output = self.run_editor(['click 152 428', 'print-state',
+        output = self.run_editor(['click 124 428', 'print-state',
                                   'click 180 428', 'print-state'], width=200)
         states = self.states(output)
         self.assertEqual(len(states), 2, output)

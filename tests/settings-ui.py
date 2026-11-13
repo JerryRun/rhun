@@ -54,6 +54,7 @@ INTS = {
     ('editor', 'inline_complete_delay'): (0, 2000, 50),
     ('terminal', 'line_height'): (1., 2.5, .05),
     ('terminal', 'scrollback'): (0, 100000, 1000), ('terminal', 'height'): (80, 2000, 10),
+    ('terminal', 'width'): (160, 2000, 10),
     ('debug', 'console_lines'): (1000, 100000, 1000),
 }
 STRINGS = {
@@ -70,6 +71,7 @@ STRINGS = {
 CHOICES = {('editor', 'multi_cursor_paste'): ('spread', 'full'),
            ('editor', 'multi_cursor_modifier'): ('alt', 'ctrl'),
            ('ui', 'decorations'): ('auto', 'client', 'server'),
+           ('terminal', 'position'): ('bottom', 'right'),
            ('git', 'commit_ai'): ('off', 'claude', 'codex', 'ollama'),
            ('updates', 'extensions'): ('install', 'check', 'off'),
            ('extensions', 'secrets'): ('system', 'memory', 'file')}
@@ -225,6 +227,7 @@ class SettingsUI(unittest.TestCase):
         widths = {('editor', 'multi_cursor_paste'): (108, 86),
                   ('editor', 'multi_cursor_modifier'): (42, 49),
                   ('ui', 'decorations'): (55, 55, 78),
+                  ('terminal', 'position'): (73, 66),
                   ('git', 'commit_ai'): (45, 92, 59, 116),
                   ('updates', 'extensions'): (67, 84, 45),
                   ('extensions', 'secrets'): (76, 70, 44)}

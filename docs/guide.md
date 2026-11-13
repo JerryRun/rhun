@@ -5,7 +5,7 @@ rhun draws everything itself: it rasterizes TrueType fonts, icons and widgets in
 ## Features
 
 - Tabs, file explorer with file type icons, command palette, fuzzy file finder, find and replace, find in files, go to line
-- Project menu in the title bar: open a folder or a file from anywhere on disk, or a recent folder, in this window or a new one
+- Project menu in the title bar: open a folder or a file from anywhere on disk, or a recent folder or workspace, in this window or a new one
 - Image preview: PNG, JPEG, GIF, BMP, ICO, QOI, PNM and TGA open in a tab, with zoom and pan
 - Syntax highlighting for about 125 languages, defined in plain text grammar files
 - 40 color themes, dark and light, with a match for every Omarchy theme; add your own. A dark and a light theme switch with the system's dark mode on macOS, Windows and Linux, as in VS Code
@@ -381,6 +381,8 @@ Drag a tab along the strip to move it; the other tabs make room as it goes, and 
 
 Find, replace and find in files ignore case until their Aa is on, in every script: `été` finds `Été`, `яблоко` finds `ЯБЛОКО` and `οδος` finds `ΟΔΟΣ`. Accented letters stay apart from plain ones, so `ete` does not find `été`.
 
+The terminal panel docks at the bottom by default. Use its **Move Panel to Right / Bottom** header button, the **Terminal: Move Panel to Right / Bottom** commands, or **Settings > Terminal > Terminal position**. Drag its inner edge to resize it; bottom height and right width are saved separately. Moving the dock keeps every running shell, task and split pane.
+
 All commands are listed in the command palette. In the terminal, Ctrl+Shift+C and Ctrl+Shift+V copy and paste, Ctrl+Shift+W goes to the program instead of closing the editor's tabs, Shift+PageUp and Shift+PageDown scroll back, Ctrl+Tab and Ctrl+Shift+Tab switch between terminals, and Shift keeps the mouse for selecting when a program uses it. A command run from the palette acts where its shortcut would: Zoom In with the terminal focused zooms the terminal.
 
 Links in the terminal open with Cmd+click on macOS and Ctrl+click on Linux and Windows, as in VS Code; a plain click still selects. Hovering a link underlines it, and its tooltip names the click. An `http://` or `https://` URL opens in the default browser, such as the `http://localhost:5173/` a dev server prints. The path of a file that exists opens in a tab: a name from `ls`, a relative or absolute path, or `~/...`, and `file:LINE` or `file:LINE:COL` from a compiler or `grep -n` opens at that place. Relative paths start in the shell's current folder on Linux and macOS, then in the project folder, where they also start on Windows. The click works in programs that take the mouse too.
@@ -406,7 +408,7 @@ Choose **Delete** from the explorer context menu to remove a file or folder. The
 
 Right-click a file or directory in the explorer and choose **Show in Finder** (macOS), **Show in Explorer** (Windows), or **Open in File Manager** (Linux). Finder and Explorer select the item in its parent folder. Linux opens the containing folder through `xdg-open`, using your desktop's default file manager. The command palette also has **Show File in System File Manager** for the active file.
 
-Clicking the project name in the title bar opens the project menu: Open Folder…, Open File… and the folders of up to 9 recent sessions, newest first. Opening a folder turns the window to it: rhun remembers the open files, asks about unsaved ones, and brings back the folder's last session. The same happens to a folder opened from Finder or the Dock, or with `:e`. Running terminals keep running; new ones start in the new folder. Shift-click a recent folder to open it in a new window instead; this one keeps its project.
+Clicking the project name in the title bar opens the project menu: Open Folder…, Open File… and up to 9 recent folders or workspace files, newest first. Named workspaces are marked (Workspace) and remembered when opened or saved, even with session restoration disabled. The title bar appends (WORKSPACE) to the active workspace name. Selecting one reopens the workspace definition and all its folders. Opening a folder turns the window to it: rhun remembers the open files, asks about unsaved ones, and brings back the folder's last session. The same happens to a folder opened from Finder or the Dock, or with `:e`. Running terminals keep running; new ones start in the new folder. Shift-click a recent folder to open it in a new window instead; this one keeps its project.
 
 Open Folder and Open File show a browser in the palette. It starts in the project folder, and its field holds a path: the list shows what is in the folder before the last `/`, narrowed by what follows it.
 
@@ -453,10 +455,11 @@ In a git repository rhun shows what changed since the last commit. It runs the `
 
 - The gutter marks added lines green and changed lines amber, and points to deleted lines in red. The marks follow the text as you type, before it is saved.
 - File names in tabs and the explorer take the color of their status. The explorer adds a letter: M modified, A added, U untracked, D deleted, R renamed, C conflict; folders take the color of the changes inside them.
-- Git: Open Changes (also in the explorer's context menu of a changed file) opens the file's diff against HEAD in a read-only tab, with the old and new line numbers and the file's syntax colors.
+- Git: Open Changes and a tracked text file in Source Control's Changes open an aligned comparison against HEAD: the original is read-only on the left, the working file is editable on the right. Opening that file from Explorer returns to normal editing.
 - The status bar shows the current branch at its left end (the short commit id when detached), and in a linked work tree (`git worktree add`) the work tree's folder too, as in `main · worktree hotfix`.
-- The history (Ctrl+Shift+G, the branch button in the title bar, or the branch in the status bar) shows the latest 3000 commits of all branches as a graph, with branch and tag names. The selected commit's message and changed files are shown on the right, with lines added and deleted; clicking a file opens its diff in that commit.
-- The first row of the history is the work tree. Selected, it shows source control on the right, as VS Code does:
+- The left sidebar contains three independent disclosure blocks in a repository: **EXPLORE**, **CHANGES** and **GRAPH**. Explore starts open; both Git blocks start collapsed. Changes contains the branch, commit message, changes and repository actions. Ctrl+Shift+G or the status bar branch toggles that block without replacing the file tree or adding an editor tab. Graph contains a compact commit graph. Subjects and filenames use the normal UI face; headings and auxiliary information keep the original small face. Settings > Interface font size adjusts both tiers globally. Commit text follows that row's graph lanes with a fixed gap. Click a commit to expand changed files immediately beneath it; click again to collapse. Several commits may stay expanded. File clicks open historical diffs. **Git: Toggle Graph** expands or collapses it. The former title bar Git button is removed.
+- Narrow Git blocks use a compact Pull / Push / Fetch / Reset toolbar with command tooltips. Graph file rows show an icon, filename, muted directory and right-aligned status. Long labels are truncated with hover tooltips. Enter or Space toggles a selected commit; Right expands and Left collapses it. Wider Changes blocks retain text action buttons.
+- Changes provides working tree actions; the timeline's first graph row represents the work tree:
   - The branch and its upstream, and the commit message: Enter breaks the line, Ctrl+Enter commits, Esc leaves it. Enter on the work tree row goes to it.
   - **Commit** takes the staged changes; with nothing staged it is **Commit All** and stages every change first. With nothing to commit the button syncs instead: **Sync Changes** pulls, then pushes, and a branch without an upstream gets **Publish Branch**.
   - **Pull**, **Push** and **Fetch**, with the number of commits to pull and to push. Pull merges, unless `pull.rebase`, `pull.ff` or the branch's `rebase` setting say otherwise. Push publishes a branch without an upstream to `origin`, or else the first remote.

@@ -38,12 +38,13 @@ class SideDiff(unittest.TestCase):
             script = p / 'script'
             script.write_text(NL.join(['wait-git', 'wait 300',
                 'shot ' + str(p/'normal.ppm'),
-                'cmd toggle_git_history', 'wait 100', 'click 800 314',
+                'cmd toggle_git_history', 'click 30 54', 'wait 100', 'click 80 302',
+                'cmd toggle_git_history', 'cmd toggle_sidebar',
                 'wait-git', 'wait 100', 'print-state',
                 'shot ' + str(p/'diff.ppm'), 'click 740 200', 'type TEST',
                 'print-doc', 'print-state',
                 # Click the real Explorer row: reuse the live buffer, leave comparison mode.
-                'cmd toggle_sidebar', 'click 50 86', 'cmd toggle_sidebar',
+                'cmd toggle_sidebar', 'cmd focus_explorer', 'click 50 82', 'cmd toggle_sidebar',
                 'wait 100', 'print-state', 'print-doc',
                 'shot ' + str(p/'reopened.ppm'),
                 'cmd save', 'cmd toggle_side_diff', 'print-doc', 'quit', '']))
@@ -56,7 +57,7 @@ class SideDiff(unittest.TestCase):
             self.assertIn('TEST', result.stdout)
             self.assertNotIn('delete one', f.read_text())
             self.assertEqual(f.read_text().replace('TEST', ''), working)
-            self.assertEqual(result.stdout.count('tabs=2 active=sample.txt'), 3, result.stdout)
+            self.assertEqual(result.stdout.count('tabs=1 active=sample.txt'), 3, result.stdout)
             self.assertNotIn('sample.txt (changes)', result.stdout)
             # The central full-height rule is specific to the side-by-side comparison.
             diff = Image.open(p/'diff.ppm')

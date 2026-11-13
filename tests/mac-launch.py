@@ -97,7 +97,7 @@ with tempfile.TemporaryDirectory(prefix='rhun-launch-', dir='/tmp') as directory
         # the file's folder is the project, but not remembered as the last one
         assert unicodedata.normalize('NFC', command('print-project')) == 'project=' + work.as_posix() + '\n'
         # a file launch is a quick edit: no explorer or agents panel
-        assert command('print-panels') == 'explorer=0 agents=0 term=0\n'
+        assert command('print-panels') == 'explorer=0 agents=0 term=0 git=0 timeline=0 terminal_position=0\n'
         assert marker.read_bytes() == previous
         until(lambda: jxa('$.NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier.js') == identifier,
               'file launch did not activate rhun')

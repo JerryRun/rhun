@@ -1659,15 +1659,33 @@ load_commands:
     call palette_ext_keys_reset
     xor ebx, ebx
 .Llc_reset:
-    cmp ebx, 256
+    cmp ebx, [rip + keys_cache_count]
     jae .Llc_reset_done
-    lea rax, [rip + keys_cache]
+    mov rax, [rip + keys_cache]
     mov rdi, [rax + rbx*8]
     mov qword ptr [rax + rbx*8], 0
     call mem_free
     inc ebx
     jmp .Llc_reset
 .Llc_reset_done:
+    # Size the built-in shortcut cache from the command table, not a fixed limit.
+    lea r12, [rip + g_commands_end]
+    lea rax, [rip + g_commands]
+    sub r12, rax
+    mov rax, r12
+    xor edx, edx
+    mov ecx, CMD_SIZE
+    div rcx
+    mov [rip + keys_cache_count], eax
+    mov rsi, rax
+    shl rsi, 3
+    mov rdi, [rip + keys_cache]
+    call mem_realloc
+    mov [rip + keys_cache], rax
+    mov rdi, rax
+    mov ecx, [rip + keys_cache_count]
+    xor eax, eax
+    rep stosq
     mov qword ptr [rip + pal_keys_cached], 1
 .Llc_cached:
     lea rbx, [rip + g_commands]
@@ -1687,7 +1705,7 @@ load_commands:
     mov ecx, CMD_SIZE
     div rcx
     mov r14, rax
-    lea rcx, [rip + keys_cache]
+    mov rcx, [rip + keys_cache]
     mov rax, [rcx + r14*8]
     test rax, rax
     jnz 3f
@@ -1701,7 +1719,7 @@ load_commands:
     pop rdi
     mov rsi, rax
     call mem_dup
-    lea rcx, [rip + keys_cache]
+    mov rcx, [rip + keys_cache]
     mov [rcx + r14*8], rax
 3:  mov rdi, r12
     mov rsi, r13
@@ -4273,7 +4291,9 @@ hint_text:
 .Lpp_sel: .asciz "> "
 .bss
 .p2align 3
-keys_cache: .zero 8 * 256
+keys_cache: .quad 0
+keys_cache_count: .long 0
+.p2align 3
 ext_keys_cache: .zero VEC_SIZE  # the extensions' shortcut labels, one slot per command
 .globl g_ed_h_lines
 g_ed_h_lines: .long 0

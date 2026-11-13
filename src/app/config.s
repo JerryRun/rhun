@@ -89,10 +89,13 @@ cfg_fast_sens: .long 400         # fast_scroll_sensitivity: multiplier while alt
 cfg_editor_scroll_sens: .long 50 # editor-only wheel multiplier; panels keep their existing speed
 .globl cfg_term_font_size, cfg_term_scrollback, cfg_term_h, cfg_term_shell, cfg_git
 .globl cfg_term_line_height, cfg_term_font
+.globl cfg_term_position, cfg_term_w
 cfg_term_font_size: .long 14
 cfg_term_line_height: .long 100  # line_height: hundredths of the font's own line height
 cfg_term_scrollback: .long 10000
 cfg_term_h: .long 260
+cfg_term_w: .long 420
+cfg_term_position: .long 0     # 0 bottom, 1 right
 cfg_git: .long 1
 .globl cfg_commit_ai, cfg_commit_model
 cfg_commit_ai: .long 0
@@ -314,7 +317,7 @@ FN setting_assign
     jz 30f
     mov rdi, r12
     mov rsi, r13
-    call parse_combo
+    call parse_chinese_toggle
     test eax, eax
     jz 9f
 30: # Copy first: the input may be the current setting's own allocation.
@@ -934,7 +937,7 @@ g_settings:
     SETTING .Ls_editor, font_size, ST_INT, cfg_font_size, 8, 40, 1, 0, "Editor font size", "Font size of the text you edit."
     SETTING .Ls_editor, font, ST_STR, cfg_font, 0, 0, 0, 0, "Editor font", "Path to a monospace .ttf file. Empty uses the built-in Iosevka."
     SETTING .Ls_editor, fallback_font, ST_STR, cfg_fallback_font, 0, 0, 0, 0, "Chinese fallback font", "Path to a TrueType .ttf or .ttc used for missing characters before system fonts."
-    SETTING .Ls_editor, chinese_toggle_key, ST_STR, cfg_chinese_toggle_key, 0, 0, 0, 0, "Chinese / English hotkey", "Linux/WSL input toggle shortcut; empty disables it. Windows uses the system IME."
+    SETTING .Ls_editor, chinese_toggle_key, ST_STR, cfg_chinese_toggle_key, 0, 0, 0, 0, "Chinese / English hotkey", "Linux/WSL shortcut, e.g. ctrl+shift or ctrl+alt+space. Modifier-only shortcuts toggle on release; empty disables. Windows uses the system IME."
     SETTING .Ls_editor, scroll_sensitivity, ST_INT, cfg_editor_scroll_sens, 10, 200, 10, 1, "Editor scroll sensitivity", "Editor wheel speed: 0.5 by default, 1.0 restores the previous speed. Also affected by the global scroll multiplier."
     SETTING .Ls_editor, line_height, ST_INT, cfg_line_height, 100, 250, 5, 1, "Line height", "Multiple of the font size."
     SETTING .Ls_editor, tab_width, ST_INT, cfg_tab_width, 1, 16, 1, 0, "Tab width", "Columns per tab stop."
@@ -988,6 +991,8 @@ g_settings:
     SETTING .Ls_terminal, line_height, ST_INT, cfg_term_line_height, 100, 250, 5, 1, "Terminal line height", "Multiple of the font's own line height."
     SETTING .Ls_terminal, scrollback, ST_INT, cfg_term_scrollback, 0, 100000, 1000, 0, "Scrollback", "Lines each terminal keeps above its screen."
     SETTING .Ls_terminal, height, ST_INT, cfg_term_h, 80, 2000, 10, 0, "Terminal height", "Height of the terminal panel in points."
+    SETTING .Ls_terminal, position, ST_CHOICE, cfg_term_position, 0, 1, 1, 0, "Terminal position", "Dock the terminal panel at the bottom or right of the editor.", .Lterm_position_opts
+    SETTING .Ls_terminal, width, ST_INT, cfg_term_w, 160, 2000, 10, 0, "Terminal width", "Width of the terminal panel when docked on the right, in points."
     SETTING .Ls_git, enabled, ST_BOOL, cfg_git, 0, 1, 1, 0, "Git", "Changes in the gutter, tabs and explorer, and the history view."
     SETTING .Ls_git, commit_ai, ST_CHOICE, cfg_commit_ai, 0, 3, 1, 0, "Commit message AI", "Optional. Cloud providers use your subscription.", g_ai_opts, g_ai_provider_desc
     SETTING .Ls_git, commit_model, ST_STR, cfg_commit_model, 0, 0, 0, 0, "Local model", "Ollama model name. Default download: about 1 GB."
@@ -1012,6 +1017,7 @@ g_settings:
 .Lpaste_opts: .asciz "spread", "Spread lines", "full", "Full text", ""
 .Lmodifier_opts: .asciz "alt", "Alt", "ctrl", "Ctrl", ""
 .Ldeco_opts: .asciz "auto", "Auto", "client", "rhun", "server", "Desktop", ""
+.Lterm_position_opts: .asciz "bottom", "Bottom", "right", "Right", ""
 
 .Ldefault_model: .asciz "qwen2.5-coder:1.5b"
 .Lsecrets_opts: .asciz "system", "Keychain", "memory", "Memory", "file", "File", ""

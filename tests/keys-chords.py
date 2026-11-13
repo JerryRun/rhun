@@ -62,7 +62,7 @@ class Keys(contribhost.Contrib):
         out = self.run_editor(drop_waits=True, actions=[
             'print-panels', 'key ctrl+k', 'key ctrl+t', 'print-panels', 'key ctrl+b', 'print-panels',
             'print-keys'])
-        self.assertEqual(self.panels(out)[:3], ['explorer=0 agents=0 term=0'] + ['explorer=1 agents=0 term=0'] * 2)
+        self.assertEqual(self.panels(out)[:3], ['explorer=0 agents=0 term=0 git=0 timeline=0 terminal_position=0'] + ['explorer=1 agents=0 term=0 git=0 timeline=0 terminal_position=0'] * 2)
         self.assertIn('ctrl+k ctrl+t select_theme source=builtin rank=2 state=shadowed:user', out)
         self.assertIn('ctrl+k ctrl+t toggle_sidebar source=user rank=4 state=active', out)
         self.assertIn('ctrl+b none source=user rank=4 state=active', out)
@@ -95,7 +95,7 @@ class Keys(contribhost.Contrib):
             'key ctrl+k', 'key ctrl+c', 'wait-ext demo running', 'wait 300',
             'key ctrl+k', 'key ctrl+u', 'print-panels', 'key x', 'print-doc', 'print-keys demo'])
         self.assertEqual(self.runs()[0][0], '0 run demo.ping 1 key 0')
-        self.assertIn('explorer=1 agents=0 term=0', out)
+        self.assertIn('explorer=1 agents=0 term=0 git=0 timeline=0 terminal_position=0', out)
         self.assertIn('xhello world', out)
         self.assertIn('x ping source=ext:alice/demo rank=3 state=refused:typing', out)
         self.assertIn('Delete pong source=ext:alice/demo rank=3 when=viewFocus state=active', out)
@@ -126,7 +126,7 @@ class Keys(contribhost.Contrib):
             'key ctrl+b', 'wait-ext demo running', 'wait 300', 'key ctrl+e', 'print-panels',
             'key ctrl+alt+d', 'wait 300', 'print-keys demo'])
         self.assertEqual([r[0] for r in self.runs()], ['0 run demo.ping 1 key 0', '0 run demo.def 1 key 0'])
-        self.assertIn('explorer=1 agents=0 term=0', out)
+        self.assertIn('explorer=1 agents=0 term=0 git=0 timeline=0 terminal_position=0', out)
         self.assertIn('ctrl+g demo.def source=default:alice/demo rank=1 state=shadowed:builtin', out)
         self.assertIn('ctrl+e pong source=ext:alice/demo rank=3 state=shadowed:user', out)
 
@@ -153,12 +153,12 @@ class Keys(contribhost.Contrib):
         self.assertTrue(800 <= int(out[0].split('ms=')[1]) <= 1000, out)
         self.assertEqual(out[1], 'chord=none')
         self.assertEqual([r[0] for r in self.runs()], ['0 run demo.ping 1 key 0'])
-        self.assertIn('explorer=1 agents=0 term=0', out)
+        self.assertIn('explorer=1 agents=0 term=0 git=0 timeline=0 terminal_position=0', out)
 
     def test_second_stroke_on_a_layout_that_is_not_latin(self):
         out = self.run_editor(exts=self.exts('ctrl+k t = rhun.toggle_sidebar\n'), drop_waits=True,
                               actions=['key ctrl+k', 'key-latin t Cyrillic_ie', 'print-panels', 'print-doc'])
-        self.assertEqual(out[:2], ['explorer=1 agents=0 term=0', 'hello world'])
+        self.assertEqual(out[:2], ['explorer=1 agents=0 term=0 git=0 timeline=0 terminal_position=0', 'hello world'])
 
     def test_keyboard_shortcuts_list(self):
         out = self.run_editor(drop_waits=True, actions=[

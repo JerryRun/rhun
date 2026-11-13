@@ -17,9 +17,11 @@ class Views(ViewsBase):
 
     def test_the_explorer_alone_fills_the_sidebar(self):
         out = self.run_editor(['print-sidebar', 'print-panel-tabs', 'print-side-tabs'], exts=None, start=False)
-        self.assertEqual(out[0], 'explorer title=Explorer at=0,40 size=240x534 badge=0 visible')
-        self.assertEqual(out[1], 'terminals=0 chosen open=0')
-        self.assertEqual(len(out), 2)
+        self.assertEqual(out[0], 'explorer title=Explore at=0,40 size=240x534 badge=0 visible')
+        self.assertEqual(out[1], 'git-history title=Changes at=0,0 size=0x0 badge=0 collapsed hidden')
+        self.assertEqual(out[2], 'timeline title=Graph at=0,0 size=0x0 badge=0 collapsed hidden')
+        self.assertEqual(out[3], 'terminals=0 chosen open=0')
+        self.assertEqual(len(out), 4)
 
     def test_declared_views_take_their_places(self):
         out = self.run_editor(['print-sidebar', 'print-panel-tabs', 'print-side-tabs'])

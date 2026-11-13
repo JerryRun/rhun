@@ -4,8 +4,8 @@
 action=commit-all
     CHANGES
     U hello.txt
-tabs=1 focus=9 theme=rhun-dark
-tabs=1 focus=0 theme=rhun-dark
+tabs=0 focus=9 theme=rhun-dark
+tabs=0 focus=0 theme=rhun-dark
 action=commit-all
 message=First
     CHANGES

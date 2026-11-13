@@ -49,6 +49,9 @@ bindings: .zero VEC_SIZE        # KB records
 kb_tmpl: .zero KB_SIZE          # the record being made
 kb_seq: .long 0
 kb_err: .long 0
+ime_mods_mask: .long 0
+ime_mods_previous: .long 0
+ime_mods_armed: .long 0
 .p2align 3
 kx_lines: .zero EXT_CAP * VEC_SIZE
 keys_hit: .quad 0               # the binding keys_lookup found (its ARGS go with keys_run)
@@ -118,6 +121,114 @@ FN parse_combo
     mov eax, r15d
     mov edx, r14d
     EPILOGUE
+
+# parse_chinese_toggle(ptr, len): normal stroke or a chord made only of modifiers.
+# The synthetic key never comes from a keyboard; it is dispatched on a clean release.
+FN parse_chinese_toggle
+    PROLOGUE
+    mov r12, rdi
+    mov r13, rsi
+    call parse_combo
+    test eax, eax
+    jnz .Lict_done
+    xor r14d, r14d
+.Lict_token:
+    test r13, r13
+    jz .Lict_bad
+    xor ebx, ebx
+1:  cmp rbx, r13
+    jae 2f
+    cmp byte ptr [r12 + rbx], '+'
+    je 2f
+    inc rbx
+    jmp 1b
+2:  test rbx, rbx
+    jz .Lict_bad
+    mov rdi, r12
+    mov rsi, rbx
+    call combo_token
+    test edx, edx
+    jz .Lict_bad
+    or r14d, edx
+    add r12, rbx
+    sub r13, rbx
+    jz 3f
+    inc r12
+    dec r13
+    jmp .Lict_token
+3:  cmp r14d, MOD_CTRL | MOD_SHIFT
+    je 4f
+    cmp r14d, MOD_ALT | MOD_SHIFT
+    je 4f
+    cmp r14d, MOD_CTRL | MOD_ALT
+    jne .Lict_bad
+4:                 # one modifier alone would interfere with typing
+    mov eax, KEY_IME_MODIFIERS
+    mov edx, r14d
+    jmp .Lict_done
+.Lict_bad:
+    xor eax, eax
+    xor edx, edx
+.Lict_done:
+    EPILOGUE
+
+# A modifier-only shortcut fires on release, unless a key/click/focus change used it.
+FN keys_ime_cancel
+    mov dword ptr [rip + ime_mods_armed], 0
+    mov dword ptr [rip + ime_mods_previous], 0
+    ret
+
+FN keys_ime_key
+    cmp edi, KEY_SHIFT_L
+    jb 1f
+    cmp edi, KEY_SUPER_R
+    jbe 2f
+1:  mov dword ptr [rip + ime_mods_armed], 0
+2:  ret
+
+FN keys_ime_modifiers
+.ifdef WINDOWS
+    ret                         # the Windows system IME owns modifier shortcuts
+.else
+.ifdef MACOS
+    ret
+.else
+    PROLOGUE
+    mov ebx, edi
+    mov r12d, [rip + ime_mods_previous]
+    mov [rip + ime_mods_previous], edi
+    mov r13d, [rip + ime_mods_mask]
+    test r13d, r13d
+    jz 9f
+    cmp dword ptr [rip + g_win_focused], 0
+    je 8f
+    cmp ebx, r13d
+    jne 1f
+    cmp r12d, ebx
+    je 9f
+    mov dword ptr [rip + ime_mods_armed], 1
+    jmp 9f
+1:  cmp dword ptr [rip + ime_mods_armed], 0
+    je 9f
+    mov dword ptr [rip + ime_mods_armed], 0
+    cmp r12d, r13d
+    jne 9f
+    mov eax, ebx
+    or eax, r13d
+    cmp eax, r13d
+    jne 9f                      # an additional modifier cancels the gesture
+    mov edi, KEY_IME_MODIFIERS
+    mov esi, r13d
+    call keys_lookup
+    test rax, rax
+    jz 9f
+    mov rdi, rdx
+    call keys_run
+    jmp 9f
+8:  call keys_ime_cancel
+9:  EPILOGUE
+.endif
+.endif
 
 # combo_token(ptr, len) -> edx mod bit if a modifier, else eax keysym
 combo_token:
@@ -536,7 +647,17 @@ kb_default_list:
     mov r15, rdx
     mov rdi, rax
     mov rsi, rdx
+    lea rcx, [rip + cmd_toggle_chinese]
+    cmp [rbx + CMD_fn], rcx
+    jne .Lkbd_normal
+    call parse_chinese_toggle
+    cmp eax, KEY_IME_MODIFIERS
+    jne .Lkbd_parsed
+    mov [rip + ime_mods_mask], edx
+    jmp .Lkbd_parsed
+.Lkbd_normal:
     call parse_combo
+.Lkbd_parsed:
     test eax, eax
     jz 1b
     cmp dword ptr [rsp], KRANK_DEFAULT
@@ -787,6 +908,8 @@ kb_free_all:
 FN keys_reload
     PROLOGUE
     call keys_chord_cancel
+    call keys_ime_cancel
+    mov dword ptr [rip + ime_mods_mask], 0
     call kb_free_all
     call palette_close_keys     # the Keyboard Shortcuts list holds bindings
     call keys_build
@@ -1449,7 +1572,17 @@ fmt_stroke:
     mov rdi, r13
     call cstr_copy
     mov r13, rax
-6:  # the key's name, or its character capitalized
+6:  cmp r15d, KEY_IME_MODIFIERS
+    jne .Lfmt_regular_key
+    cmp byte ptr [r13 - 1], '+'
+    jne .Lfmt_modifier_end
+    dec r13
+.Lfmt_modifier_end:
+    mov byte ptr [r13], 0
+    mov rax, r13
+    EPILOGUE
+.Lfmt_regular_key:
+    # the key's name, or its character capitalized
     lea rbx, [rip + key_names]
 7:  cmp qword ptr [rbx], 0
     je 71f
@@ -2380,8 +2513,12 @@ g_commands:
     COMMAND clear_task_problems, "Clear Task Problems", cmd_clear_task_problems, ""
     COMMAND kill_terminal, "Kill Terminal", cmd_kill_terminal, ""
     COMMAND clear_terminal, "Clear Terminal", cmd_clear_terminal, ""
-    COMMAND git_history, "Git: Show History", cmd_git_history, ""
-    COMMAND toggle_git_history, "Toggle Git History", cmd_toggle_git, "ctrl+shift+g"
+    COMMAND terminal_move_bottom, "Terminal: Move Panel to Bottom", cmd_term_move_bottom, ""
+    COMMAND terminal_move_right, "Terminal: Move Panel to Right", cmd_term_move_right, ""
+    COMMAND terminal_toggle_position, "Terminal: Toggle Panel Position", cmd_term_toggle_position, ""
+    COMMAND git_history, "Git: Show Changes", cmd_git_history, ""
+    COMMAND toggle_git_history, "Git: Toggle Changes", cmd_toggle_git, "ctrl+shift+g"
+    COMMAND git_toggle_timeline, "Git: Toggle Graph", cmd_git_toggle_timeline, ""
     COMMAND git_changes, "Git: Open Changes", cmd_git_changes, ""
     COMMAND git_commit, "Git: Commit", cmd_git_commit, ""
     COMMAND git_generate_message, "Git: Generate Commit Message", cmd_git_generate_message, ""
@@ -2479,5 +2616,7 @@ g_commands:
     COMMAND fold_level_1, "Fold Level 1", cmd_fold_level_1, ""
     COMMAND fold_level_2, "Fold Level 2", cmd_fold_level_2, ""
     COMMAND fold_level_3, "Fold Level 3", cmd_fold_level_3, ""
+.globl g_commands_end
+g_commands_end:
     .quad 0, 0, 0, 0
 

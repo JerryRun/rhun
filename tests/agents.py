@@ -721,8 +721,8 @@ class CodexDiscovery(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', errors='replace'))
                 output = result.stdout.decode('utf-8')
                 project = 'project=~/' + self.project.name + '\n' if name in ('project', 'file') else 'project=\n'
-                self.assertEqual(output, project + 'explorer=0 agents=1 term=0\n' * (name in ('file', 'wait')) +
-                                 'explorer=1 agents=1 term=0\n' * (name in ('project', 'empty')) + expected)
+                self.assertEqual(output, project + 'explorer=0 agents=1 term=0 git=0 timeline=0 terminal_position=0\n' * (name in ('file', 'wait')) +
+                                 'explorer=1 agents=1 term=0 git=0 timeline=0 terminal_position=0\n' * (name in ('project', 'empty')) + expected)
 
     def run_commands(self, commands, timeout=20):
         script = self.home / 'commands.rsc'

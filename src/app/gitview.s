@@ -1,4 +1,4 @@
-# git history tab: commit graph of the branches, the selected commit's message and files
+# Source control sidebar with an optional commit timeline and details
 .include "rhun.inc"
 
 STRUCT
@@ -13,15 +13,31 @@ F CM_subject, 8
 F CM_pass, 8            # lanes going past the row
 F CM_in, 8              # lanes ending in the node from above
 F CM_out, 8             # lanes leaving the node below
+F CM_tree, 8            # optional inline file disclosure, stable across log refreshes
 ENDSTRUCT CM_SIZE
+
+STRUCT
+F CT_next, 8
+F CT_hash, 8
+F CT_files, VEC_SIZE
+F CT_data, 8
+F CT_state, 4           # 0 not fetched, 1 loading, 2 ready, 3 failed
+F CT_open, 4
+ENDSTRUCT CT_SIZE
 
 .equ ID_GV_ROW, 0x7000          # + row
 .equ ID_GV_SCROLL, 0x7e01
 .equ ID_GV_DSCROLL, 0x7e02
 .equ ID_GV_FILE, 0x7f00         # + file
+.equ ID_GV_TREE, 0x20000000    # + commit row << 16 + file; separate from sidebar/editor ids
 .equ MAX_ROWS, 0xe00
 .equ LANES, 64
 .equ SHOW_LANES, 16
+# Keep every graph segment and inline continuation on the same compact geometry.
+.equ GV_LANE, MI_10
+.equ GV_INSET, MI_6
+.equ GV_STROKE, MI_2
+.equ GV_NODE_RADIUS, MI_4
 
 .bss
 .p2align 3
@@ -39,6 +55,16 @@ maskcap: .quad 0
 htab: .quad 0                   # commit index + 1 by hash
 hcap: .quad 0
 tmp: .zero SB_SIZE
+trees: .quad 0
+tree_generation: .long 0
+.globl g_git_panel, g_git_timeline
+g_git_panel: .long 0
+g_git_timeline: .long 0
+.globl g_git_history_place, g_git_timeline_place
+.data
+g_git_history_place: .long -1
+g_git_timeline_place: .long -1
+.bss
 log_state: .long 0              # 0 nothing yet, 2 shown
 loading: .long 0
 log_again: .long 0
@@ -48,6 +74,7 @@ sel: .long 0
 sel_reveal: .long 0
 list_scroll: .long 0
 list_h: .long 0
+list_y: .long 0
 det_scroll: .long 0
 det_h: .long 0                  # content height of the details
 det_state: .long 0              # 0 none, 1 loading, 2 shown
@@ -72,22 +99,6 @@ row_cm:
     add rax, [rip + commits + VEC_ptr]
     ret
 
-# git_tab() -> index of the history tab, or -1
-git_tab:
-    xor ecx, ecx
-1:  cmp rcx, [rip + g_tabs + VEC_len]
-    jae 2f
-    imul rax, rcx, TAB_SIZE
-    add rax, [rip + g_tabs + VEC_ptr]
-    cmp qword ptr [rax + TAB_kind], TAB_GIT
-    je 3f
-    inc rcx
-    jmp 1b
-2:  mov rax, -1
-    ret
-3:  mov rax, rcx
-    ret
-
 # ---------------- commands ----------------
 
 FN cmd_git_history
@@ -101,47 +112,152 @@ FN cmd_git_history
 2:  call app_toast
     pop rbx
     ret
-1:  call git_tab
-    test rax, rax
-    js 2f
-    mov rdi, rax
-    call app_activate_tab
-    jmp 3f
-2:  xor edi, edi
-    mov esi, TAB_GIT
-    call app_add_tab
-3:  call gitview_load
+1:  mov edi, [rip + g_git_history_place]
+    xor esi, esi
+    call place_show
+    cmp dword ptr [rip + cfg_sidebar], 0
+    jne 3f
+    mov dword ptr [rip + g_settings_changed], 1
+3:  mov dword ptr [rip + cfg_sidebar], 1
+    mov edi, 1
+    call app_reveal_panel
+    call git_sidebar_sync
+    mov dword ptr [rip + g_focus], FOCUS_GIT
+    call gitview_load
+    mov dword ptr [rip + g_dirty], 1
     pop rbx
     ret
 
-# cmd_toggle_git(): the history tab; closes it when it is the current one
 FN cmd_toggle_git
+    cmp dword ptr [rip + g_show_side], 0
+    je cmd_git_history
+    cmp dword ptr [rip + g_git_panel], 0
+    je cmd_git_history
+FN cmd_git_panel_close
     push rbx
-    mov rdi, [rip + g_tab_cur]
-    test rdi, rdi
-    js 1f
-    call tab_at
-    cmp qword ptr [rax + TAB_kind], TAB_GIT
-    jne 1f
-    mov rdi, [rip + g_tab_cur]
-    call app_close_tab
-    pop rbx
-    ret
-1:  call cmd_git_history
+    mov edi, [rip + g_git_history_place]
+    mov esi, 1
+    call place_set_collapsed
+    call git_sidebar_sync
     pop rbx
     ret
 
-# gitview_show_wip(): the history tab with the work tree selected
+FN cmd_git_toggle_timeline
+    PROLOGUE
+    cmp dword ptr [rip + g_git_on], 0
+    je 9f
+    mov edi, [rip + g_git_timeline_place]
+    call place_at
+    test rax, rax
+    jz 9f
+    test dword ptr [rax + PL_flags], PLF_COLLAPSED
+    jz 1f
+    mov edi, [rip + g_git_timeline_place]
+    xor esi, esi
+    call place_show
+    cmp dword ptr [rip + cfg_sidebar], 0
+    jne .Ltimeline_sidebar_ready
+    mov dword ptr [rip + cfg_sidebar], 1
+    mov dword ptr [rip + g_settings_changed], 1
+.Ltimeline_sidebar_ready:
+    mov edi, 1
+    call app_reveal_panel
+    mov dword ptr [rip + g_focus], FOCUS_GIT
+    call gitview_load
+    jmp 2f
+1:  mov edi, [rip + g_git_timeline_place]
+    mov esi, 1
+    call place_set_collapsed
+2:  call git_sidebar_sync
+9:  EPILOGUE
+
+# Built-in Git blocks use the same sidebar registry as Explore and extensions.
+FN git_sidebar_init
+    PROLOGUE
+    mov edi, PLACE_SIDEBAR
+    lea rsi, [rip + .Lhistory_name]
+    lea rdx, [rip + .Lhistory_title]
+    lea rcx, [rip + history_ops]
+    xor r8d, r8d
+    call place_add
+    mov [rip + g_git_history_place], eax
+    mov edi, eax
+    call place_at
+    or dword ptr [rax + PL_flags], PLF_COLLAPSED | PLF_HIDDEN
+    mov edi, PLACE_SIDEBAR
+    lea rsi, [rip + .Ltimeline_name]
+    lea rdx, [rip + .Ltimeline_title]
+    lea rcx, [rip + timeline_ops]
+    xor r8d, r8d
+    call place_add
+    mov [rip + g_git_timeline_place], eax
+    mov edi, eax
+    call place_at
+    or dword ptr [rax + PL_flags], PLF_COLLAPSED | PLF_HIDDEN
+    EPILOGUE
+
+# Availability and keyboard focus follow the actual disclosure states.
+FN git_sidebar_sync
+    PROLOGUE
+    mov dword ptr [rip + g_git_panel], 0
+    mov dword ptr [rip + g_git_timeline], 0
+    xor ebx, ebx
+1:  lea rax, [rip + g_git_history_place]
+    mov edi, [rax + rbx*4]
+    call place_at
+    test rax, rax
+    jz 3f
+    or dword ptr [rax + PL_flags], PLF_HIDDEN
+    cmp dword ptr [rip + g_git_on], 0
+    je 3f
+    and dword ptr [rax + PL_flags], ~PLF_HIDDEN
+    test dword ptr [rax + PL_flags], PLF_COLLAPSED
+    jnz 3f
+    lea rcx, [rip + g_git_panel]
+    mov dword ptr [rcx + rbx*4], 1
+    cmp dword ptr [rip + log_state], 0
+    jne 3f
+    cmp dword ptr [rip + loading], 0
+    jne 3f
+    call gitview_load
+3:  inc ebx
+    cmp ebx, 2
+    jb 1b
+    cmp dword ptr [rip + g_git_panel], 0
+    jne 4f
+    cmp dword ptr [rip + g_focus], FOCUS_SCM
+    jne 4f
+    mov dword ptr [rip + g_focus], FOCUS_EDITOR
+4:  mov eax, [rip + g_git_panel]
+    or eax, [rip + g_git_timeline]
+    jnz 9f
+    cmp dword ptr [rip + g_focus], FOCUS_GIT
+    jne 9f
+    mov dword ptr [rip + g_focus], FOCUS_EDITOR
+9:  EPILOGUE
+
+history_body:
+    mov edi, esi
+    mov esi, edx
+    mov edx, ecx
+    mov ecx, r8d
+    jmp scm_draw
+
+timeline_body:
+    cmp dword ptr [rip + log_state], 2
+    jne 9f
+    mov edi, esi
+    mov esi, edx
+    mov edx, ecx
+    mov ecx, r8d
+    jmp draw_list
+9:  ret
+
+# Show the work tree without adding or changing editor tabs.
 FN gitview_show_wip
     push rbx
-    mov rdi, [rip + g_tab_cur]
-    test rdi, rdi
-    js 1f
-    call tab_at
-    cmp qword ptr [rax + TAB_kind], TAB_GIT
-    je 2f
-1:  call cmd_git_history
-2:  mov byte ptr [rip + sel_hash], 0
+    call cmd_git_history
+    mov byte ptr [rip + sel_hash], 0
     cmp dword ptr [rip + log_state], 2
     jne 3f
     xor edi, edi
@@ -151,6 +267,13 @@ FN gitview_show_wip
 
 # gitview_reset(): another repository
 FN gitview_reset
+    push rbx
+    call tree_clear
+    mov edi, [rip + g_git_timeline_place]
+    mov esi, 1
+    call place_set_collapsed
+    pop rbx
+    mov dword ptr [rip + g_git_timeline], 0
     mov qword ptr [rip + commits + VEC_len], 0
     mov qword ptr [rip + files + VEC_len], 0
     mov dword ptr [rip + log_state], 0
@@ -169,9 +292,9 @@ FN gitview_reset
 # gitview_head_moved(): HEAD or branches changed
 FN gitview_head_moved
     push rbx
-    call git_tab
-    test rax, rax
-    js 1f
+    mov eax, [rip + g_git_panel]
+    or eax, [rip + g_git_timeline]
+    je 1f
     call gitview_load
 1:  pop rbx
     ret
@@ -214,6 +337,7 @@ on_log:
     call sb_push
 1:  call parse_log
     call build_index
+    call tree_restore
     mov dword ptr [rip + log_state], 2
     call layout
     call restore_sel
@@ -849,6 +973,187 @@ on_numstat:
 8:  mov dword ptr [rip + g_dirty], 1
 9:  EPILOGUE
 
+# Inline disclosures own their file lists, so several commits may stay expanded.
+# A generation check rejects requests from a repository that has since closed.
+tree_clear:
+    PROLOGUE
+    inc dword ptr [rip + tree_generation]
+    mov rbx, [rip + trees]
+    mov qword ptr [rip + trees], 0
+1:  test rbx, rbx
+    jz 9f
+    mov r12, [rbx + CT_next]
+    mov rdi, [rbx + CT_hash]
+    call mem_free
+    mov rdi, [rbx + CT_data]
+    call mem_free
+    lea rdi, [rbx + CT_files]
+    call vec_free
+    mov rdi, rbx
+    call mem_free
+    mov rbx, r12
+    jmp 1b
+9:  EPILOGUE
+
+tree_restore:
+    PROLOGUE
+    mov rbx, [rip + trees]
+1:  test rbx, rbx
+    jz 9f
+    mov rdi, [rbx + CT_hash]
+    call hash_slot
+    mov edi, [rax]
+    test edi, edi
+    jz 4f
+    dec edi
+    call row_cm
+    mov [rax + CM_tree], rbx
+4:  mov rbx, [rbx + CT_next]
+    jmp 1b
+9:  EPILOGUE
+
+# tree_toggle(row): selection and expansion are independent.
+tree_toggle:
+    PROLOGUE
+    mov ebx, edi
+    call select_row
+    mov edi, ebx
+    call row_cm
+    mov r12, rax
+    mov rdi, [rax + CM_hash]
+    cmp byte ptr [rdi], 0
+    je 9f
+    mov rbx, [r12 + CM_tree]
+    test rbx, rbx
+    jnz 1f
+    mov edi, CT_SIZE
+    call mem_alloc
+    mov rbx, rax
+    mov [r12 + CM_tree], rax
+    mov rax, [rip + trees]
+    mov [rbx + CT_next], rax
+    mov [rip + trees], rbx
+    mov rdi, [r12 + CM_hash]
+    call dup_cstr
+    mov [rbx + CT_hash], rax
+1:  xor dword ptr [rbx + CT_open], 1
+    cmp dword ptr [rbx + CT_open], 0
+    je 9f
+    cmp dword ptr [rbx + CT_state], 2
+    je 9f
+    cmp dword ptr [rbx + CT_state], 1
+    je 9f
+    mov edi, 16
+    call mem_alloc
+    mov [rax], rbx
+    mov ecx, [rip + tree_generation]
+    mov [rax + 8], ecx
+    mov rdx, rax
+    mov rax, [rbx + CT_hash]
+    mov [rip + args_show_rev], rax
+    mov dword ptr [rbx + CT_state], 1
+    lea rdi, [rip + args_show]
+    lea rsi, [rip + on_tree]
+    xor ecx, ecx
+    xor r8d, r8d
+    call git_run
+    test eax, eax
+    jnz 9f
+    mov dword ptr [rbx + CT_state], 3
+9:  mov dword ptr [rip + g_dirty], 1
+    EPILOGUE
+
+# on_tree(ctx, data, len, status): retain raw paths until this disclosure is freed.
+on_tree:
+    PROLOGUE
+    mov eax, [rdi + 8]
+    cmp eax, [rip + tree_generation]
+    jne 9f
+    mov rbx, [rdi]
+    mov dword ptr [rbx + CT_state], 3
+    test ecx, ecx
+    jnz 8f
+    mov rdi, rsi
+    mov rsi, rdx
+    mov r12, rdx
+    call mem_dup
+    mov [rbx + CT_data], rax
+    mov r13, rax
+    add r12, rax
+1:  cmp r13, r12
+    jae 7f
+    cmp byte ptr [r13], 0x1e
+    je 2f
+    inc r13
+    jmp 1b
+2:  inc r13
+3:  cmp r13, r12
+    jae 7f
+    movzx eax, byte ptr [r13]
+    cmp eax, ':'
+    je 4f
+    inc r13
+    jmp 3b
+4:  mov rdi, r13
+    call strlen
+    lea r13, [r13 + rax]
+    movzx r14d, byte ptr [r13 - 1]
+    inc r13
+    cmp r13, r12
+    jae 7f
+    cmp r14d, 'T'
+    jne 5f
+    mov r14d, 'M'
+5:  lea rdi, [rbx + CT_files]
+    mov esi, GF_SIZE
+    call vec_push
+    mov [rax + GF_path], r13
+    mov [rax + GF_code], r14d
+    mov dword ptr [rax + GF_add], -2
+    mov rdi, r13
+    call strlen
+    lea r13, [r13 + rax + 1]
+    jmp 3b
+7:  mov dword ptr [rbx + CT_state], 2
+8:  mov dword ptr [rip + g_dirty], 1
+9:  EPILOGUE
+
+# tree_rows(cm) -> number of inserted file/loading/empty-state rows.
+tree_rows:
+    xor eax, eax
+    mov rcx, [rdi + CM_tree]
+    test rcx, rcx
+    jz 9f
+    cmp dword ptr [rcx + CT_open], 0
+    je 9f
+    mov eax, 1
+    cmp dword ptr [rcx + CT_state], 2
+    jne 9f
+    mov ecx, [rcx + CT_files + VEC_len]
+    cmp ecx, eax
+    cmovg eax, ecx
+9:  ret
+
+# list_pixels(row_limit): height before that commit, or entire content.
+list_pixels:
+    PROLOGUE
+    mov r12d, edi
+    xor ebx, ebx
+    xor r13d, r13d
+1:  cmp ebx, r12d
+    jae 9f
+    mov edi, ebx
+    call row_cm
+    mov rdi, rax
+    call tree_rows
+    inc eax
+    imul eax, [rip + g_mt + 4*MI_24]
+    add r13d, eax
+    inc ebx
+    jmp 1b
+9:  mov eax, r13d
+    EPILOGUE
+
 # ---------------- drawing ----------------
 
 # gitview_draw(x, y, w, h)
@@ -921,7 +1226,7 @@ FN gitview_draw
     call draw_details
 9:  EPILOGUE
 
-# draw_list(x, y, w, h)
+# draw_list(x, y, w, h): one scrolling tree, including expanded file rows.
 draw_list:
     PROLOGUE 96
     mov [rsp], edi
@@ -929,25 +1234,32 @@ draw_list:
     mov [rsp + 8], edx
     mov [rsp + 12], ecx
     mov [rip + list_h], ecx
-    M r15d, MI_28               # row height
+    mov [rip + list_y], esi
+    M r15d, MI_24
     call nrows
     mov [rsp + 16], eax
-    # wheel
+    mov edi, eax
+    call list_pixels
+    mov [rsp + 44], eax
     mov edi, [rsp]
     mov esi, [rsp + 4]
     mov edx, [rsp + 8]
     mov ecx, [rsp + 12]
     call ui_in
+    mov ecx, [rip + g_block]
+    mov [rsp + 40], ecx
     test eax, eax
-    jz 1f
+    jnz .Ldl_inside
+    mov dword ptr [rip + g_block], 1
+    jmp 1f
+.Ldl_inside:
     mov eax, [rip + g_scroll_y]
     add [rip + list_scroll], eax
-1:  # keep the selection in view
-    cmp dword ptr [rip + sel_reveal], 0
+1:  cmp dword ptr [rip + sel_reveal], 0
     je 2f
     mov dword ptr [rip + sel_reveal], 0
-    mov eax, [rip + sel]
-    imul eax, r15d
+    mov edi, [rip + sel]
+    call list_pixels
     cmp eax, [rip + list_scroll]
     jge 11f
     mov [rip + list_scroll], eax
@@ -956,8 +1268,7 @@ draw_list:
     cmp eax, [rip + list_scroll]
     jle 2f
     mov [rip + list_scroll], eax
-2:  mov eax, [rsp + 16]
-    imul eax, r15d
+2:  mov eax, [rsp + 44]
     sub eax, [rsp + 12]
     jns 21f
     xor eax, eax
@@ -972,21 +1283,19 @@ draw_list:
     mov edx, [rsp + 8]
     mov ecx, [rsp + 12]
     call gfx_clip_push
-    # graph width: the lanes, up to a third of the list
     mov eax, [rsp + 8]
     xor edx, edx
     mov ecx, 3
     div ecx
     xor edx, edx
-    div dword ptr [rip + g_mt + 4*MI_16]
+    div dword ptr [rip + g_mt + 4*GV_LANE]
     cmp eax, 1
     jge 24f
     mov eax, 1
 24: cmp eax, SHOW_LANES
     jbe 25f
     mov eax, SHOW_LANES
-25: # more lanes than that: the last column stands for the rest
-    mov ecx, eax
+25: mov ecx, eax
     cmp eax, [rip + nlanes]
     jb 26f
     mov eax, [rip + nlanes]
@@ -994,17 +1303,8 @@ draw_list:
     inc ecx
 26: dec ecx
     mov [rip + show_lanes], ecx
-    imul eax, [rip + g_mt + 4*MI_16]
-    add eax, [rip + g_mt + 4*MI_8]
-    mov [rsp + 20], eax
-    # first visible row
-    mov eax, [rip + list_scroll]
-    xor edx, edx
-    div r15d
-    mov ebx, eax
-    imul eax, r15d
+    xor ebx, ebx
     mov r13d, [rsp + 4]
-    add r13d, eax
     sub r13d, [rip + list_scroll]
 .Ldl_row:
     cmp ebx, [rsp + 16]
@@ -1016,10 +1316,14 @@ draw_list:
     mov edi, ebx
     call row_cm
     mov r14, rax
-    # interaction
-    xor eax, eax
-    cmp ebx, MAX_ROWS
-    jae 3f
+    mov rdi, rax
+    call tree_rows
+    imul eax, r15d
+    mov [rsp + 36], eax
+    add eax, r15d
+    add eax, r13d
+    cmp eax, [rsp + 4]
+    jle .Ldl_skip
     lea edi, [rbx + ID_GV_ROW]
     mov esi, [rsp]
     mov edx, r13d
@@ -1027,22 +1331,28 @@ draw_list:
     sub ecx, [rip + g_mt + 4*MI_12]
     mov r8d, r15d
     call ui_btn
-3:  mov [rsp + 24], eax
-    test eax, UB_PRESS
+    mov [rsp + 24], eax
+    mov r8d, eax
+    lea edi, [rbx + ID_GV_ROW]
+    mov esi, [rsp]
+    mov edx, r13d
+    add edx, r15d
+    mov ecx, [rsp + 8]
+    mov r9, [r14 + CM_subject]
+    call tip_note_text
+    test dword ptr [rsp + 24], UB_PRESS
     jz 31f
     mov edi, ebx
-    call select_row
-    mov dword ptr [rip + g_focus], FOCUS_EDITOR
-31: # a right press on a commit: its menu (source control, wider-parity C)
-    test dword ptr [rsp + 24], UB_RPRESS
+    call tree_toggle
+    mov dword ptr [rip + g_focus], FOCUS_GIT
+31: test dword ptr [rsp + 24], UB_RPRESS
     jz 4f
     mov rax, [r14 + CM_hash]
-    test rax, rax
-    jz 4f
     cmp byte ptr [rax], 0
     je 4f
     mov edi, ebx
     call select_row
+    mov dword ptr [rip + g_focus], FOCUS_GIT
     mov edi, SL_HISTORY_COMMIT
     mov rsi, [r14 + CM_hash]
     xor edx, edx
@@ -1050,8 +1360,7 @@ draw_list:
     xor r8d, r8d
     xor r9d, r9d
     call scm_row_menu
-4:  # background
-    COLOR r8d, T_ACTIVE
+4:  COLOR r8d, T_ACTIVE
     cmp ebx, [rip + sel]
     je 41f
     test dword ptr [rsp + 24], UB_HOVER
@@ -1064,90 +1373,60 @@ draw_list:
     call gfx_fill
 42: mov rdi, r14
     mov esi, [rsp]
-    add esi, [rip + g_mt + 4*MI_8]
+    add esi, [rip + g_mt + 4*GV_INSET]
     mov edx, r13d
     mov ecx, r15d
     call draw_graph
+    # Text follows this row's graph, rather than the widest lane in the log.
+    mov rdi, r14
+    call node_text_offset
     mov r12d, [rsp]
-    add r12d, [rip + g_mt + 4*MI_8]
-    add r12d, [rsp + 20]
-    # right columns: date, author
+    add r12d, eax
     mov eax, [rsp]
     add eax, [rsp + 8]
-    sub eax, [rip + g_mt + 4*MI_24]
-    mov [rsp + 28], eax         # right edge of the text
-    mov rax, [r14 + CM_hash]
-    cmp byte ptr [rax], 0
-    je .Ldl_wip
-    mov rdi, [r14 + CM_time]
-    lea rsi, [rsp + 48]
-    call fmt_age
-    mov [rsp + 32], eax
-    lea rdi, [rip + g_face_small]
-    lea rsi, [rsp + 48]
-    mov edx, eax
-    call text_width
-    mov esi, [rsp + 28]
-    sub esi, eax
-    lea rdi, [rip + g_face_small]
-    mov edx, r13d
-    mov ecx, r15d
-    lea r8, [rsp + 48]
-    mov r9d, [rsp + 32]
-    COLOR eax, T_MUTED
-    push rax
-    push rax
-    call ui_text_v
-    add rsp, 16
-    mov edi, 90
-    call sc
-    sub [rsp + 28], eax
-    # the author when the subject keeps room
-    mov edi, 450
-    call sc
-    mov ecx, [rsp + 28]
-    sub ecx, r12d
-    cmp ecx, eax
-    jl 5f
-    mov edi, 150
-    call sc
-    sub [rsp + 28], eax
+    sub eax, [rip + g_mt + 4*MI_16]
+    sub eax, r12d
+    mov [rsp + 28], eax         # total text room
+    cmp eax, 1
+    jle .Ldl_children
+    # Author immediately follows a short subject; reserve room when it is long.
     mov rdi, [r14 + CM_author]
     call strlen
-    mov r9, rax
-    mov edi, 140
-    call sc
-    push rax
-    COLOR eax, T_MUTED
-    push rax
+    mov [rsp + 48], rax
+    mov rdx, rax
+    mov rsi, [r14 + CM_author]
     lea rdi, [rip + g_face_small]
-    mov esi, [rsp + 28 + 16]
-    mov edx, r13d
-    mov ecx, r15d
-    mov r8, [r14 + CM_author]
-    call ui_text_v_fit
-    add rsp, 16
-5:  # ref chips (at most 40% of the room), then the subject
+    call text_width
+    mov ecx, [rsp + 28]
+    shr ecx, 2
+    cmp eax, ecx
+    cmovg eax, ecx
+    mov [rsp + 32], eax
     mov eax, [rsp + 28]
-    sub eax, r12d
-    imul eax, eax, 2
-    xor edx, edx
-    mov ecx, 5
-    div ecx
-    lea r8d, [r12 + rax]
-    mov rdi, [r14 + CM_refs]
-    mov esi, r12d
-    mov edx, r13d
-    mov ecx, r15d
-    call chips
-    mov r12d, eax
-    mov rdi, [r14 + CM_subject]
+    cmp dword ptr [rsp + 32], 0
+    je 421f
+    sub eax, [rsp + 32]
+    sub eax, [rip + g_mt + 4*MI_8]
+421:
+    mov [rsp + 56], eax
+    mov r8, [r14 + CM_subject]
+    test ebx, ebx
+    jnz 43f
+    cmp dword ptr [rip + g_git_changes], 0
+    jne 43f
+    lea r8, [rip + .Lclean]
+43: mov [rsp + 64], r8
+    mov rdi, r8
     call strlen
-    mov r9, rax
-    mov eax, [rsp + 28]
-    sub eax, r12d
-    sub eax, [rip + g_mt + 4*MI_12]
-    jle .Ldl_next
+    mov [rsp + 72], rax
+    mov rdx, rax
+    lea rdi, [rip + g_face_ui]
+    mov rsi, [rsp + 64]
+    call text_width
+    cmp eax, [rsp + 56]
+    cmovg eax, [rsp + 56]
+    mov [rsp + 60], eax
+    mov eax, [rsp + 56]
     push rax
     COLOR eax, T_FG
     push rax
@@ -1155,50 +1434,44 @@ draw_list:
     mov esi, r12d
     mov edx, r13d
     mov ecx, r15d
-    mov r8, [r14 + CM_subject]
+    mov r8, [rsp + 16 + 64]
+    mov r9, [rsp + 16 + 72]
     call ui_text_v_fit
     add rsp, 16
-    jmp .Ldl_next
-.Ldl_wip:
-    cmp dword ptr [rip + g_git_changes], 0
-    jne 1f
-    lea rdi, [rip + g_face_ui]
-    mov esi, r12d
-    mov edx, r13d
-    mov ecx, r15d
-    lea r8, [rip + .Lclean]
-    COLOR r9d, T_MUTED
-    call ui_text_c
-    jmp .Ldl_next
-1:  lea rdi, [rip + g_face_ui]
-    mov esi, r12d
-    mov edx, r13d
-    mov ecx, r15d
-    lea r8, [rip + .Lwip]
-    COLOR r9d, T_FG
-    call ui_text_c
-    add eax, [rip + g_mt + 4*MI_8]
-    mov r12d, eax
-    call scm_changes            # as many as the panel lists, a new folder's files each
-    mov esi, eax
-    lea rdi, [rsp + 48]
-    call fmt_u64
-    mov byte ptr [rdi], 0
+    mov eax, [rsp + 32]
+    test eax, eax
+    jz .Ldl_children
+    push rax
+    COLOR eax, T_MUTED
+    push rax
     lea rdi, [rip + g_face_small]
     mov esi, r12d
+    add esi, [rsp + 16 + 60]
+    add esi, [rip + g_mt + 4*MI_8]
     mov edx, r13d
     mov ecx, r15d
-    lea r8, [rsp + 48]
-    COLOR r9d, T_MUTED
-    call ui_text_c
-.Ldl_next:
+    mov r8, [r14 + CM_author]
+    mov r9, [rsp + 16 + 48]
+    call ui_text_v_fit
+    add rsp, 16
+.Ldl_children:
+    mov rdi, r14
+    mov esi, [rsp]
+    lea edx, [r13 + r15]
+    mov ecx, [rsp + 8]
+    mov r8d, r15d
+    mov r9d, ebx
+    call draw_tree
+    mov [rsp + 36], eax
+.Ldl_skip:
     add r13d, r15d
+    add r13d, [rsp + 36]
     inc ebx
     jmp .Ldl_row
 .Ldl_done:
     call gfx_clip_pop
-    mov eax, [rsp + 16]
-    imul eax, r15d
+    mov edi, [rsp + 16]
+    call list_pixels
     mov ecx, [rsp + 12]
     push rcx
     push rax
@@ -1213,7 +1486,280 @@ draw_list:
     lea r9, [rip + list_scroll]
     call ui_scrollbar
     add rsp, 16
+    mov eax, [rsp + 40]
+    mov [rip + g_block], eax
     EPILOGUE
+
+# draw_tree(cm, x, y, w, row_h, row_index) -> inserted height.
+draw_tree:
+    PROLOGUE 96
+    mov r14, rdi
+    mov [rsp], esi
+    mov [rsp + 4], edx
+    mov [rsp + 8], ecx
+    mov [rsp + 12], r8d
+    shl r9d, 16
+    add r9d, ID_GV_TREE
+    mov [rsp + 16], r9d
+    call tree_rows
+    imul eax, [rsp + 12]
+    mov [rsp + 20], eax
+    test eax, eax
+    jz .Ldt_done
+    mov r15, [r14 + CM_tree]
+    # Extend each outgoing/pass-through lane under the disclosure's file rows.
+    xor ebx, ebx
+.Ldt_lane:
+    cmp ebx, [rip + show_lanes]
+    jae .Ldt_content
+    mov rax, [r14 + CM_pass]
+    or rax, [r14 + CM_out]
+    bt rax, rbx
+    jnc 1f
+    mov edi, ebx
+    call lane_color
+    mov r8d, eax
+    mov edi, ebx
+    imul edi, [rip + g_mt + 4*GV_LANE]
+    add edi, [rsp]
+    add edi, [rip + g_mt + 4*GV_INSET]
+    M eax, GV_LANE
+    shr eax, 1
+    add edi, eax
+    M edx, GV_STROKE
+    mov eax, edx
+    shr eax, 1
+    sub edi, eax
+    mov esi, [rsp + 4]
+    mov ecx, [rsp + 20]
+    call gfx_fill
+1:  inc ebx
+    jmp .Ldt_lane
+.Ldt_content:
+    mov rdi, r14
+    call node_text_offset
+    add eax, [rip + g_mt + 4*MI_12]
+    mov r12d, [rsp]
+    add r12d, eax
+    mov r13d, [rsp + 4]
+    lea r8, [rip + .Lloading]
+    cmp dword ptr [r15 + CT_state], 3
+    jne 2f
+    lea r8, [rip + .Ltree_error]
+    jmp .Ldt_note
+2:  cmp dword ptr [r15 + CT_state], 2
+    jne .Ldt_note
+    cmp qword ptr [r15 + CT_files + VEC_len], 0
+    jne .Ldt_files
+    lea r8, [rip + .Ltree_empty]
+.Ldt_note:
+    mov eax, [rsp]
+    add eax, [rsp + 8]
+    sub eax, r12d
+    sub eax, [rip + g_mt + 4*MI_16]
+    cmp eax, 1
+    jle .Ldt_done
+    mov [rsp + 40], r8
+    push rax
+    COLOR eax, T_MUTED
+    push rax
+    mov rdi, [rsp + 16 + 40]
+    call strlen
+    mov r9, rax
+    mov r8, [rsp + 16 + 40]
+    lea rdi, [rip + g_face_small]
+    mov esi, r12d
+    mov edx, r13d
+    mov ecx, [rsp + 16 + 12]
+    call ui_text_v_fit
+    add rsp, 16
+    jmp .Ldt_done
+.Ldt_files:
+    xor ebx, ebx
+.Ldt_file:
+    cmp rbx, [r15 + CT_files + VEC_len]
+    jae .Ldt_done
+    mov eax, [rip + list_y]
+    add eax, [rip + list_h]
+    cmp r13d, eax
+    jge .Ldt_done
+    mov eax, r13d
+    add eax, [rsp + 12]
+    cmp eax, [rip + list_y]
+    jle .Ldt_next
+    imul rax, rbx, GF_SIZE
+    add rax, [r15 + CT_files + VEC_ptr]
+    mov [rsp + 24], rax
+    mov edi, [rsp + 16]
+    add edi, ebx
+    mov esi, r12d
+    sub esi, [rip + g_mt + 4*MI_4]
+    mov edx, r13d
+    mov ecx, [rsp]
+    add ecx, [rsp + 8]
+    sub ecx, esi
+    sub ecx, [rip + g_mt + 4*MI_12]
+    mov r8d, [rsp + 12]
+    call ui_btn
+    mov [rsp + 32], eax
+    mov r8d, eax
+    mov edi, [rsp + 16]
+    add edi, ebx
+    mov esi, r12d
+    mov edx, r13d
+    add edx, [rsp + 12]
+    mov ecx, [rsp + 8]
+    mov rax, [rsp + 24]
+    mov r9, [rax + GF_path]
+    call tip_note_text
+    test dword ptr [rsp + 32], UB_HOVER
+    jz 3f
+    mov edi, r12d
+    sub edi, [rip + g_mt + 4*MI_4]
+    mov esi, r13d
+    mov edx, [rsp]
+    add edx, [rsp + 8]
+    sub edx, edi
+    sub edx, [rip + g_mt + 4*MI_12]
+    mov ecx, [rsp + 12]
+    COLOR r8d, T_HOVER
+    call gfx_fill
+3:  test dword ptr [rsp + 32], UB_RPRESS
+    jz 4f
+    mov rax, [rsp + 24]
+    mov rdi, [rax + GF_path]
+    call strlen
+    mov rcx, rax
+    mov rax, [rsp + 24]
+    mov rdx, [rax + GF_path]
+    mov r9d, [rax + GF_code]
+    mov rsi, [r14 + CM_hash]
+    mov edi, SL_HISTORY_FILE
+    xor r8d, r8d
+    call scm_row_menu
+4:  test dword ptr [rsp + 32], UB_CLICK
+    jz 5f
+    mov rax, [rsp + 24]
+    mov rdi, [rax + GF_path]
+    call strlen
+    mov rdx, rax
+    mov rax, [rsp + 24]
+    mov rsi, [rax + GF_path]
+    mov rdi, [r14 + CM_hash]
+    call git_open_diff
+5:  mov rax, [rsp + 24]
+    mov rdi, [rax + GF_path]
+    call strlen
+    mov rsi, rax
+    mov rax, [rsp + 24]
+    mov rdi, [rax + GF_path]
+    call path_basename
+    mov [rsp + 40], rax
+    mov [rsp + 48], rdx
+    mov rdi, rax
+    call file_icon
+    mov edi, eax
+    lea r8, [rip + g_theme]
+    mov r8d, [r8 + rdx*4]
+    mov esi, r12d
+    mov edx, [rsp + 12]
+    sub edx, [rip + g_mt + 4*MI_16]
+    sar edx, 1
+    add edx, r13d
+    M ecx, MI_16
+    call icon_draw
+    # Status at the far right, independently of filename/path ellipsis.
+    mov rax, [rsp + 24]
+    mov edi, [rax + GF_code]
+    mov [rsp + 56], edi
+    call git_code_color
+    mov r9d, eax
+    lea rdi, [rip + g_face_small]
+    mov esi, [rsp]
+    add esi, [rsp + 8]
+    sub esi, [rip + g_mt + 4*MI_24]
+    mov edx, r13d
+    mov ecx, [rsp + 12]
+    lea r8, [rsp + 56]
+    call ui_text_c
+    mov esi, r12d
+    add esi, [rip + g_mt + 4*MI_20]
+    mov [rsp + 60], esi
+    mov eax, [rsp]
+    add eax, [rsp + 8]
+    sub eax, [rip + g_mt + 4*MI_32]
+    sub eax, esi
+    mov [rsp + 64], eax
+    cmp eax, 1
+    jle .Ldt_next
+    push rax
+    COLOR eax, T_FG
+    push rax
+    lea rdi, [rip + g_face_ui]
+    mov esi, [rsp + 16 + 60]
+    mov edx, r13d
+    mov ecx, [rsp + 16 + 12]
+    mov r8, [rsp + 16 + 40]
+    mov r9, [rsp + 16 + 48]
+    call ui_text_v_fit
+    add rsp, 16
+    # Directory follows only when the filename fits without truncation.
+    lea rdi, [rip + g_face_ui]
+    mov rsi, [rsp + 40]
+    mov rdx, [rsp + 48]
+    call text_width
+    add eax, [rip + g_mt + 4*MI_8]
+    cmp eax, [rsp + 64]
+    jge .Ldt_next
+    add [rsp + 60], eax
+    sub [rsp + 64], eax
+    mov rax, [rsp + 24]
+    mov r8, [rax + GF_path]
+    mov r9, [rsp + 40]
+    sub r9, r8
+    jz .Ldt_next
+    dec r9
+    mov eax, [rsp + 64]
+    push rax
+    COLOR eax, T_MUTED
+    push rax
+    lea rdi, [rip + g_face_small]
+    mov esi, [rsp + 16 + 60]
+    mov edx, r13d
+    mov ecx, [rsp + 16 + 12]
+    call ui_text_v_fit
+    add rsp, 16
+.Ldt_next:
+    add r13d, [rsp + 12]
+    inc ebx
+    jmp .Ldt_file
+.Ldt_done:
+    mov eax, [rsp + 20]
+    EPILOGUE
+
+# node_text_offset(cm): a fixed gap after this row's occupied graph lanes.
+# Passing/merging lanes must stay left of the label instead of crossing its glyphs.
+node_text_offset:
+    mov rax, [rdi + CM_pass]
+    or rax, [rdi + CM_in]
+    or rax, [rdi + CM_out]
+    bsr rdx, rax
+    mov ecx, -1
+    test rax, rax
+    cmovz edx, ecx
+    mov eax, [rdi + CM_lane]
+    cmp eax, edx
+    cmovl eax, edx
+    cmp eax, [rip + show_lanes]
+    cmova eax, [rip + show_lanes]
+    imul eax, [rip + g_mt + 4*GV_LANE]
+    M ecx, GV_LANE
+    shr ecx, 1
+    add eax, ecx
+    add eax, [rip + g_mt + 4*GV_INSET]
+    add eax, [rip + g_mt + 4*GV_NODE_RADIUS]
+    add eax, [rip + g_mt + 4*MI_6]
+    ret
 
 # lane_color(lane) -> argb
 lane_color:
@@ -1231,7 +1777,7 @@ draw_graph:
     mov [rsp], esi
     mov [rsp + 4], edx
     mov [rsp + 8], ecx
-    M eax, MI_16
+    M eax, GV_LANE
     mov [rsp + 12], eax         # lane width
     mov eax, [rsp + 8]
     shr eax, 1
@@ -1302,7 +1848,7 @@ draw_graph:
     jb 6f
     # in a lane not shown: a small muted dot in the last column
     COLOR r9d, T_MUTED
-    M r12d, MI_3
+    M r12d, MI_2
     mov edi, [rsp + 20]
     sub edi, r12d
     mov esi, [rsp + 16]
@@ -1315,7 +1861,7 @@ draw_graph:
 6:  mov edi, [rbx + CM_lane]
     call lane_color
     mov r14d, eax
-    M r12d, MI_5                # radius
+    M r12d, GV_NODE_RADIUS      # compact commit dot
     mov edi, [rsp + 20]
     sub edi, r12d
     mov esi, [rsp + 16]
@@ -1329,7 +1875,7 @@ draw_graph:
     mov rax, [rbx + CM_hash]
     cmp byte ptr [rax], 0
     jne 9f
-    M eax, MI_2
+    M eax, GV_STROKE
     sub r12d, eax
     mov edi, [rsp + 20]
     sub edi, r12d
@@ -1351,7 +1897,7 @@ lane_x:
     ret
 # vline(x, y, h): lane line of r14d color centered on x
 vline:
-    M eax, MI_2
+    M eax, GV_STROKE
     mov ecx, edx
     mov edx, eax
     shr eax, 1
@@ -1421,7 +1967,7 @@ aa_seg:
     sqrtss xmm4, xmm4
     comiss xmm4, [rip + f_half]
     jbe 9f
-    cvtsi2ss xmm5, dword ptr [rip + g_mt + 4*MI_2]
+    cvtsi2ss xmm5, dword ptr [rip + g_mt + 4*GV_STROKE]
     mulss xmm5, [rip + f_half]
     divss xmm5, xmm4
     mulss xmm2, xmm5            # dx * hw / len
@@ -1689,8 +2235,13 @@ draw_details:
     mov edx, [rsp + 8]
     mov ecx, [rsp + 12]
     call ui_in
+    mov ecx, [rip + g_block]
+    mov [rsp + 32], ecx
     test eax, eax
-    jz 1f
+    jnz .Ldd_inside
+    mov dword ptr [rip + g_block], 1
+    jmp 1f
+.Ldd_inside:
     mov eax, [rip + g_scroll_y]
     add [rip + det_scroll], eax
 1:  mov eax, [rip + det_h]
@@ -1711,7 +2262,7 @@ draw_details:
     call nrows
     test eax, eax
     jz .Ldd_end
-    M r15d, MI_16               # padding
+    M r15d, MI_12               # compact sidebar gutter
     mov r12d, [rsp]
     add r12d, r15d              # text x
     mov eax, [rsp + 8]
@@ -1761,7 +2312,7 @@ draw_details:
     mov r8, [rip + tmp + SB_ptr]
     call ui_text_v_fit
     add rsp, 16
-    add r13d, [rip + g_mt + 4*MI_32]
+    add r13d, [rip + g_mt + 4*MI_24]
     cmp dword ptr [rip + det_state], 2
     je 3f
     lea r8, [rip + .Lloading]
@@ -1819,6 +2370,8 @@ draw_details:
     jmp 33b
 36: add r13d, [rip + g_mt + 4*MI_12]
 .Ldd_files:
+    cmp dword ptr [rip + g_git_timeline], 0
+    jne .Ldd_compact_files
     # "N files"
     lea rdi, [rsp + 48]
     mov rsi, [rip + files + VEC_len]
@@ -1830,13 +2383,14 @@ draw_details:
 4:  call cstr_copy
     lea r8, [rsp + 48]
     call .Ldd_note
+.Ldd_compact_files:
     xor ebx, ebx
 .Ldd_file:
     cmp rbx, [rip + files + VEC_len]
     jae .Ldd_end_content
     imul r15, rbx, GF_SIZE
     add r15, [rip + files + VEC_ptr]
-    M eax, MI_28
+    M eax, MI_48
     mov [rsp + 20], eax         # row h
     # rows out of sight only add their height
     mov eax, [rsp + 4]
@@ -1907,7 +2461,7 @@ draw_details:
     lea rdi, [rip + g_face_small]
     mov esi, r12d
     mov edx, r13d
-    mov ecx, [rsp + 20]
+    M ecx, MI_24
     lea r8, [rsp + 48]
     call ui_text_c
     # counts, right-aligned
@@ -1915,6 +2469,7 @@ draw_details:
     add eax, [rsp + 8]
     sub eax, [rip + g_mt + 4*MI_20]
     mov [rsp + 28], eax         # right edge
+    add r13d, [rip + g_mt + 4*MI_24]
     cmp dword ptr [r15 + GF_add], 0
     jl 7f
     mov esi, [r15 + GF_del]
@@ -1925,12 +2480,16 @@ draw_details:
     lea rcx, [rip + .Lplus]
     COLOR r9d, T_GIT_ADD
     call .Ldd_count
-7:  mov rdi, [r15 + GF_path]
+7:  sub r13d, [rip + g_mt + 4*MI_24]
+    mov rdi, [r15 + GF_path]
     call strlen
-    mov r9, rax
-    mov eax, [rsp + 28]
-    sub eax, r12d
-    sub eax, [rip + g_mt + 4*MI_32]
+    mov rsi, rax
+    mov rdi, [r15 + GF_path]
+    call path_basename
+    mov r8, rax
+    mov r9, rdx
+    mov eax, [rsp + 16]
+    sub eax, [rip + g_mt + 4*MI_20]
     push rax
     COLOR eax, T_FG
     push rax
@@ -1938,7 +2497,27 @@ draw_details:
     mov esi, r12d
     add esi, [rip + g_mt + 4*MI_20]
     mov edx, r13d
-    mov ecx, [rsp + 20 + 16]
+    M ecx, MI_24
+    call ui_text_v_fit
+    add rsp, 16
+    # Full repository path on its own line, beside the change counts.
+    mov rdi, [r15 + GF_path]
+    call strlen
+    mov r9, rax
+    mov eax, [rsp + 28]
+    sub eax, r12d
+    sub eax, [rip + g_mt + 4*MI_8]
+    mov ecx, 1
+    cmp eax, ecx
+    cmovl eax, ecx
+    push rax
+    COLOR eax, T_MUTED
+    push rax
+    lea rdi, [rip + g_face_small]
+    mov esi, r12d
+    mov edx, r13d
+    add edx, [rip + g_mt + 4*MI_24]
+    M ecx, MI_20
     mov r8, [r15 + GF_path]
     call ui_text_v_fit
     add rsp, 16
@@ -1967,6 +2546,8 @@ draw_details:
     lea r9, [rip + det_scroll]
     call ui_scrollbar
     add rsp, 16
+    mov eax, [rsp + 32]
+    mov [rip + g_block], eax
     EPILOGUE
 # title r8 (cstr) at r13d, then down
 .Ldd_title:
@@ -1983,10 +2564,10 @@ draw_details:
     lea rdi, [rip + g_face_ui]
     mov esi, r12d
     mov edx, r13d
-    M ecx, MI_32
+    M ecx, MI_24
     call ui_text_v_fit
     add rsp, 16
-    add r13d, [rip + g_mt + 4*MI_32]
+    add r13d, [rip + g_mt + 4*MI_24]
     add rsp, 8
     ret
 # muted note r8 (cstr) at r13d, then down
@@ -2024,7 +2605,7 @@ draw_details:
     mov [rsp + 56 + 8 + 28], esi
     lea rdi, [rip + g_face_small]
     mov edx, r13d
-    mov ecx, [rsp + 56 + 8 + 20]
+    M ecx, MI_20
     lea r8, [rsp + 8]
     mov r9, r12
     mov eax, [rsp + 32]
@@ -2043,12 +2624,19 @@ draw_details:
 FN gitview_key
     PROLOGUE
     mov r12d, edi
+    test edx, edx
+    jnz .Lgk_no
+    mov eax, [rip + g_git_panel]
+    or eax, [rip + g_git_timeline]
+    je .Lgk_no
+    cmp dword ptr [rip + g_show_side], 0
+    je .Lgk_no
     call nrows
     mov r13d, eax
     test eax, eax
     jz .Lgk_no
     mov ebx, [rip + sel]
-    M ecx, MI_28
+    M ecx, MI_24
     mov eax, [rip + list_h]
     xor edx, edx
     div ecx
@@ -2081,14 +2669,47 @@ FN gitview_key
     jne 61f
     lea ebx, [r13 - 1]
     jmp .Lgk_set
-61: # Enter on the work tree: to the commit message
+61: cmp r12d, KEY_LEFT
+    je .Lgk_collapse
+    cmp r12d, KEY_RIGHT
+    je .Lgk_expand
+    cmp r12d, ' '
+    je 62f
+    # Enter on the work tree: to the commit message
     cmp r12d, KEY_RETURN
     je 62f
     cmp r12d, KEY_KP_ENTER
     jne .Lgk_no
 62: test ebx, ebx
-    jnz .Lgk_no
+    jnz .Lgk_toggle
     call scm_focus
+    mov eax, 1
+    EPILOGUE
+.Lgk_collapse:
+    mov edi, ebx
+    call row_cm
+    mov rax, [rax + CM_tree]
+    test rax, rax
+    jz .Lgk_used
+    cmp dword ptr [rax + CT_open], 0
+    jne .Lgk_toggle
+    jmp .Lgk_used
+.Lgk_expand:
+    test ebx, ebx
+    jz .Lgk_used
+    mov edi, ebx
+    call row_cm
+    mov rax, [rax + CM_tree]
+    test rax, rax
+    jz .Lgk_toggle
+    cmp dword ptr [rax + CT_open], 0
+    je .Lgk_toggle
+.Lgk_used:
+    mov eax, 1
+    EPILOGUE
+.Lgk_toggle:
+    mov edi, ebx
+    call tree_toggle
     mov eax, 1
     EPILOGUE
 .Lgk_set:
@@ -2098,7 +2719,11 @@ FN gitview_key
 7:  cmp ebx, r13d
     jl 8f
     lea ebx, [r13 - 1]
-8:  mov edi, ebx
+8:  mov edi, [rip + g_git_timeline_place]
+    xor esi, esi
+    call place_set_collapsed
+    call git_sidebar_sync
+    mov edi, ebx
     call select_row
     mov eax, 1
     EPILOGUE
@@ -2302,3 +2927,16 @@ args_numstat:
     .quad .Lshow, .Lhash_format, .Lnumstat, .Lz, .Lno_renames, .Ldash_m, .Lfirst_parent
 args_numstat_rev:
     .quad 0, 0
+
+.section .rodata
+
+.Lhistory_name: .asciz "git-history"
+.Lhistory_title: .asciz "Changes"
+.Ltimeline_name: .asciz "timeline"
+.Ltimeline_title: .asciz "Graph"
+.Lworking_tree: .asciz "Working tree"
+.Ltree_empty: .asciz "No file changes"
+.Ltree_error: .asciz "Unable to load files. Click to retry."
+.p2align 3
+history_ops: .quad history_body, 0, 0, 0, 0, 0
+timeline_ops: .quad timeline_body, 0, 0, 0, 0, 0

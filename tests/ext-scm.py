@@ -318,9 +318,9 @@ class Menus(Base):
 
     def test_commit_and_commit_file_menus(self):
         sha = self.git('rev-parse', 'HEAD').strip()
-        out = self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'wait 200', 'click 200 118 right',
+        out = self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'click 30 54', 'cmd toggle_git_history', 'cmd git_toggle_timeline', 'wait 200', 'click 100 160 right',
                                'wait 100', 'print-menu', 'print-scm-ext', 'print-context scmProvider',
-                               'key Escape', 'click 200 118', 'wait-git', 'wait 200', 'click 700 202 right',
+                               'key Escape', 'click 100 160', 'wait-git', 'wait 200', 'click 100 184 right',
                                'wait 100', 'print-menu', 'print-scm-ext', 'print-context scmResourceStatus',
                                'menu-pick Open Changes', 'wait-git', 'print-tabs'], drop_waits=True)
         self.assertEqual(out[0], 'Copy Commit ID')
@@ -335,9 +335,9 @@ class Menus(Base):
         (self.proj / 'a.txt').write_text('changed\n', encoding='utf-8')
         (self.proj / 'c.txt').write_text('new\n', encoding='utf-8')
         self.git('add', 'c.txt')
-        out = self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'wait 200', 'click 700 314 right',
+        out = self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'click 30 54', 'wait 200', 'click 100 302 right',
                                'wait 100', 'print-scm-ext', 'print-context scmResourceGroup', 'key Escape',
-                               'click 700 378 right', 'wait 100', 'print-menu', 'print-scm-ext',
+                               'click 100 366 right', 'wait 100', 'print-menu', 'print-scm-ext',
                                'print-context scmResourceGroup', 'menu-pick Open File', 'wait 100',
                                'print-tabs'], drop_waits=True)
         self.assertIn('menu=scm_resource resource staged c.txt', out)
@@ -352,7 +352,7 @@ class Menus(Base):
         exts = self.ext('tools', needs='', hello='hello 1 command-args', commands={'show_commit': []},
                         ini="[menu.history_commit]\nshow_commit.group = 5_tools\n"
                             "[menu.scm_resource]\nshow_commit.when = scmProvider == 'nobody'\n")
-        out = self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'wait 200', 'click 200 118 right',
+        out = self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'click 30 54', 'cmd toggle_git_history', 'cmd git_toggle_timeline', 'wait 200', 'click 100 160 right',
                                'wait 100', 'print-menu', 'menu-pick Show_Commit', 'wait-ext tools running', 'wait 300'],
                               exts=exts, drop_waits=True)
         self.assertEqual(out[:3], ['Copy Commit ID', '-', 'Show_Commit [rhun-tests/tools]'], out)
@@ -368,10 +368,9 @@ class Menus(Base):
                             "sync.when = scmProvider == git\nother.when = scmProvider == 'rhun-tests/hg'\n")
 
     def test_header_buttons_on_gits_source_control(self):
-        # at 1000x600 the work tree's branch row is at y 100, its buttons end at the right edge; only
-        # the item whose clause names git shows (one button, at x 971)
-        self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'wait 300', 'click 947 100', 'wait 300',
-                         'click 971 100', 'wait-ext tools running', 'wait 300'], exts=self.tools(), drop_waits=True)
+        # The Source Control sidebar branch row exposes only the matching title action.
+        self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'click 30 54', 'wait 300', 'click 174 120', 'wait 300',
+                         'click 212 120', 'wait-ext tools running', 'wait 300'], exts=self.tools(), drop_waits=True)
         log = self.fake_log('tools')
         runs = [(l.split()[3], log[i + 1]) for i, l in enumerate(log) if l.startswith('< 0 run tools.')]
         self.assertEqual(runs, [('tools.sync', '| ' + repr(f'scm git {self.proj.as_posix()}\n'))], log)

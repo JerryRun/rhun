@@ -18,18 +18,21 @@ print-git
 open @HOME@/repo/crlf.txt
 wait-git
 print-git
-# changes of the file against HEAD; the view is read-only
+# changes of the file against HEAD; editing keeps the same document
 cmd git_changes
 wait-git
 print-state
 print-doc
 type x
-key BackSpace
-key ctrl+shift+k
+key ctrl+z
 print-state
 # history: graph, the files of a commit, a commit's diff
 cmd git_history
 wait-git
+click 30 54
+cmd toggle_git_history
+cmd git_toggle_timeline
+wait-git
 print-state
 print-gitlog
 key Down
@@ -38,7 +41,9 @@ key Down
 key Down
 wait-git
 print-gitlog
-click 780 226
+key Return
+wait-git
+click 80 256
 wait-git
 print-state
 print-doc

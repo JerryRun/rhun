@@ -22,8 +22,7 @@ class FcitxInput(unittest.TestCase):
             config = work/'config/rhun/config'
             config.parent.mkdir(parents=True)
             config.write_text('[ui]\nsidebar=false\nagents_panel=false\n'
-                'font=/mnt/c/Windows/Fonts/msyh.ttc\n[editor]\n'
-                'fallback_font=/mnt/c/Windows/Fonts/msyh.ttc\n'
+                '[editor]\n'
                 '[git]\nenabled=false\n[updates]\ncheck=false\n'
                 '[files]\nrestore_session=false\nrestore_project=false\n'
                 '[terminal]\nshell=/bin/sh\n')
@@ -86,6 +85,17 @@ class FcitxInput(unittest.TestCase):
             'key ctrl+alt+p', 'wait 100', 'type English', 'wait 150', 'print-doc'],
             shortcut='ctrl+alt+p')
         self.assertIn('ctrl+alt+p toggle_chinese source=builtin', out)
+        self.assertNotIn('ctrl+alt+space toggle_chinese', out)
+        self.assertIn('中文English', out)
+
+    def test_modifier_only_shortcut_commits_chinese(self):
+        out = self.run_editor(['print-keys', 'modifiers ctrl', 'modifiers ctrl+shift',
+            'modifiers ctrl', 'modifiers none', 'wait 120', 'type zhongwen',
+            'wait 250', 'key space', 'wait 180', 'print-doc',
+            'modifiers shift', 'modifiers ctrl+shift', 'modifiers shift',
+            'modifiers none', 'wait 120', 'type English', 'wait 180', 'print-doc'],
+            shortcut='ctrl+shift')
+        self.assertIn('ctrl+shift toggle_chinese source=builtin', out)
         self.assertNotIn('ctrl+alt+space toggle_chinese', out)
         self.assertIn('中文English', out)
 

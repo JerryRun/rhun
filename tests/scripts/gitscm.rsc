@@ -4,6 +4,7 @@ open @HOME@/repo
 wait-git
 cmd git_history
 wait-git
+click 30 54
 print-git
 print-scm
 # fetch: the remote's commit; pulling it stops at the local change to the same file
@@ -14,20 +15,20 @@ cmd git_pull
 wait-git
 print-scm
 # + on a hovered file stages it, - unstages it (the error goes with the next command)
-click 992 386
+click 216 374
 wait-git
 print-scm
-click 992 314
+click 216 302
 wait-git
 print-scm
 # discarding a new file deletes it, after asking
-click 966 342
+click 190 330
 print-state
 key Return
 wait-git
 print-scm
 # the message: Enter breaks the line, Ctrl+Enter commits every change, as none is staged
-click 850 132
+click 80 152
 type Say uno
 key Return
 key Return
@@ -38,7 +39,7 @@ wait-git
 print-scm
 print-git
 # Sync Changes: the pull merges and stops at the conflict; the merge's message fills the box
-click 850 172
+click 100 192
 wait-git
 print-scm
 # resolved in the editor, staged, committed with that message
@@ -67,14 +68,14 @@ cmd git_commit
 wait-git
 print-gitlog
 # amending takes the message box's text
-click 850 132
+click 80 152
 type Merge the remote
 cmd git_commit_amend
 wait-git
 print-gitlog
 print-git
 # Push
-click 863 210
+click 90 232
 wait-git
 print-git
 print-scm
@@ -109,7 +110,7 @@ cmd toggle_terminal
 wait-git
 print-git
 print-scm
-click 850 172
+click 100 192
 wait-git
 print-git
 print-scm

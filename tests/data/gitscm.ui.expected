@@ -22,7 +22,7 @@ action=commit-all
     CHANGES
     M a.txt
     U notes.txt
-tabs=1 focus=5 theme=rhun-dark
+tabs=0 focus=5 theme=rhun-dark
 action=commit-all
     CHANGES
     M a.txt
@@ -56,11 +56,13 @@ message=Merge branch 'main' of ../remote
 |* Shout one (origin/main, origin/HEAD)
 */ First
 git on branch=main upstream=origin/main ahead=2 behind=0
+marks ....
 git on branch=main upstream=origin/main ahead=0 behind=0
+marks ....
 action=none
-tabs=2 focus=9 theme=rhun-dark
-tabs=2 focus=0 theme=rhun-dark
-tabs=2 focus=5 theme=rhun-dark
+tabs=1 active=a.txt line=4 col=2 sel=0 dirty=0 lang=none focus=9 theme=rhun-dark
+tabs=1 active=a.txt line=4 col=2 sel=0 dirty=0 lang=none focus=0 theme=rhun-dark
+tabs=1 active=a.txt line=4 col=2 sel=0 dirty=0 lang=none focus=5 theme=rhun-dark
 action=none
 uno y ONE
 two
@@ -68,6 +70,8 @@ three
 
 <eod>
 git on branch=topic
+marks ....
 action=publish
 git on branch=topic upstream=origin/topic ahead=0 behind=0
+marks ....
 action=none

@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 from ctypes import wintypes
+from fnmatch import fnmatchcase
 import os
 import json
 from pathlib import Path
@@ -19,6 +20,10 @@ ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--wine', metavar='WINE64')
+parser.add_argument('--filter', action='append', metavar='PATTERN',
+                    help='run matching check names only (repeatable shell-style pattern)')
+parser.add_argument('--temp-dir', type=Path,
+                    help='directory for isolated test fixtures (default: build/windows)')
 args = parser.parse_args()
 if os.name != 'nt' and not args.wine:
     parser.error('run on Windows, or supply --wine for the compatibility checks')
@@ -45,6 +50,8 @@ def run(exe, *arguments, env=None, success=True, timeout=30):
 
 
 def check(name, fn):
+    if args.filter and not any(fnmatchcase(name, pattern) for pattern in args.filter):
+        return
     try:
         fn()
         print('ok   ' + name, flush=True)
@@ -66,7 +73,7 @@ def same_folder(line, folder):
     assert value and Path(value).expanduser().resolve() == Path(folder).resolve(), (value, folder)
 
 
-with tempfile.TemporaryDirectory(prefix='rhun-windows-', dir=OUT) as temporary:
+with tempfile.TemporaryDirectory(prefix='rhun-windows-', dir=args.temp_dir or OUT) as temporary:
     temp = Path(temporary)
 
     def environment(name):
@@ -387,7 +394,8 @@ with tempfile.TemporaryDirectory(prefix='rhun-windows-', dir=OUT) as temporary:
 
     def script_file(name, text):
         path = temp / (name + '.rsc')
-        path.write_text(text, encoding='utf-8', newline='\n')
+        with path.open('w', encoding='utf-8', newline='\n') as stream:
+            stream.write(text)
         return winpath(path)
 
     def cls_keeps_prompt():
@@ -442,15 +450,25 @@ with tempfile.TemporaryDirectory(prefix='rhun-windows-', dir=OUT) as temporary:
         project = temp / 'shift wheel'
         project.mkdir()
         wide = project / 'wide.txt'
-        wide.write_text(''.join(f'line {i:02d} ' + 'wide ' * 60 + '\n' for i in range(80)),
-                        encoding='utf-8', newline='\n')
+        with wide.open('w', encoding='utf-8', newline='\n') as stream:
+            stream.write(''.join(f'line {i:02d} ' + 'wide ' * 60 + '\n' for i in range(80)))
         script = script_file('shift-wheel', 'move 500 350\nscroll 120 shift\nwait 50\nprint-scroll\n'
                                             'scroll 120\nwait 50\nprint-scroll\nquit\n')
-        output = run('rhun.com', winpath(project), winpath(wide), '--headless', '1000x700', '--script',
-                     script, env=environment('shift-wheel')).stdout.decode()
-        sideways, down = [line.split()[:2] for line in output.splitlines() if line.startswith('x=')]
-        assert sideways == ['x=120', 'y=0'], output
-        assert down[0] == 'x=120' and down[1] != 'y=0', output
+        for sensitivity, expected_x in ((None, 60), ('1.0', 120), ('0.2', 24)):
+            name = 'shift-wheel-' + str(sensitivity)
+            env = environment(name)
+            config = temp / name / 'config/rhun/config'
+            config.parent.mkdir(parents=True, exist_ok=True)
+            config.write_text('[updates]\ncheck=false\n' +
+                              ('' if sensitivity is None else
+                               '[editor]\nscroll_sensitivity=' + sensitivity + '\n'),
+                              encoding='utf-8')
+            output = run('rhun.com', winpath(project), winpath(wide), '--headless',
+                         '1000x700', '--script', script, env=env).stdout.decode()
+            sideways, down = [line.split()[:2] for line in output.splitlines()
+                              if line.startswith('x=')]
+            assert sideways == [f'x={expected_x}', 'y=0'], output
+            assert down[0] == f'x={expected_x}' and down[1] != 'y=0', output
     check('wheel/shift-scrolls-sideways', shift_wheel)
 
     def control():
@@ -647,7 +665,8 @@ with tempfile.TemporaryDirectory(prefix='rhun-windows-', dir=OUT) as temporary:
         project.mkdir()
         def command(*arguments):
             subprocess.run(['git', '-C', str(project), *arguments], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        command('init', '-b', 'main')
+        command('init')
+        command('symbolic-ref', 'HEAD', 'refs/heads/main')
         command('config', 'user.name', 'Test')
         command('config', 'user.email', 'test@example.invalid')
         command('config', 'core.autocrlf', 'false')
@@ -656,10 +675,26 @@ with tempfile.TemporaryDirectory(prefix='rhun-windows-', dir=OUT) as temporary:
         command('add', 'a.txt')
         command('commit', '-m', 'Initial')
         file.write_bytes(b'after\n')
-        script = script_file('git', 'wait-git\nprint-git\ncmd git_changes\nwait-git\nprint-doc\nquit\n')
+        # The default comparison reuses the editable working file; its base is drawn
+        # beside it rather than included in print-doc as a synthetic patch document.
+        script = script_file('git', 'wait-git\nprint-git\ncmd git_changes\nwait-git\n'
+                                   'print-tabs\nprint-doc\nclick 780 108\nkey End\ntype !\n'
+                                   'print-state\nprint-doc\ncmd save\nprint-toast\nquit\n')
         output = run('rhun.com', winpath(project), winpath(file), '--headless', '1000x700', '--script', script,
                      env=environment('git')).stdout
-        assert b'git on branch=main\nM a.txt' in output and b'before\nafter\n' in output, output
+        assert b'git on branch=main\nM a.txt' in output, output
+        assert b'tabs=*a.txt\n' in output and b'after\n\n<eod>\n' in output, output
+        assert file.read_bytes() == b'after!\n', (output, file.read_bytes())
+        # Disabling side-by-side comparison still opens the original patch view.
+        file.write_bytes(b'after\n')
+        env = environment('git-patch')
+        config = temp / 'git-patch/config/rhun/config'
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text('[editor]\nside_diff=false\n', encoding='utf-8')
+        script = script_file('git-patch', 'wait-git\ncmd git_changes\nwait-git\nprint-doc\nquit\n')
+        output = run('rhun.com', winpath(project), winpath(file), '--headless', '1000x700',
+                     '--script', script, env=env).stdout
+        assert b'before\nafter\n' in output, output
     if not args.wine:
         check('agents/windows-session-paths', agents)
         check('git/status-and-diff', git)
@@ -794,7 +829,7 @@ with tempfile.TemporaryDirectory(prefix='rhun-windows-', dir=OUT) as temporary:
             assert len(first) == 3, first
             same_folder(first[0], file.parent)
             assert b'tabs=1 active=' + file.name.encode() in first[1], first
-            assert first[2].strip() == b'explorer=0 agents=0 term=0', first
+            assert first[2].strip() == b'explorer=0 agents=0 term=0 git=0 timeline=0 terminal_position=0', first
             window, _ = native_find_window(user, callback_type, pid=process.pid)
             native_assert_foreground(user, window)
             output = process.communicate(timeout=10)[0]

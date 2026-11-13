@@ -243,6 +243,32 @@ FN session_remember_project
     call file_write_all
 9:  EPILOGUE
 
+# Record named workspaces independently of the restore-open-files setting.
+# A per-path marker shares the recent folders' timestamp ordering and path encoding.
+FN session_remember_workspace
+    PROLOGUE
+    mov rbx, [rip + g_ws_file]
+    test rbx, rbx
+    jz 9f
+    cmp dword ptr [rip + g_remote], 0
+    jne 9f
+    cmp dword ptr [rip + g_project_link], 0
+    jne 9f
+    mov rdi, rbx
+    call strlen
+    cmp rax, 4000
+    ja 9f
+    lea rdi, [rip + .Lworkspace_recent]
+    mov rsi, rbx
+    call session_path_file
+    test rax, rax
+    jz 9f
+    mov rdi, rax
+    lea rsi, [rip + .Lempty]
+    xor edx, edx
+    call file_write_all
+9:  EPILOGUE
+
 # session_last_project() -> existing directory in a static buffer, or 0.
 FN session_last_project
     PROLOGUE
@@ -283,11 +309,14 @@ session_file:
 # session_project_file(suffix cstr) -> the state file for the current project with that suffix (a
 #   static buffer), or 0: the debugger keeps PROJECT.debug next to PROJECT.session
 FN session_project_file
+    mov rsi, [rip + g_project]
+# session_path_file(suffix, path): same reversible encoding for folders/workspaces.
+session_path_file:
     PROLOGUE
     mov r13, rdi
+    mov rbx, rsi
     lea rdi, [rip + path_sb]
     call sb_clear
-    mov rbx, [rip + g_project]
     test rbx, rbx
     jz 8f
     lea rdi, [rip + path_sb]
@@ -384,9 +413,8 @@ FN session_project_file
 8:  xor eax, eax
     EPILOGUE
 
-# session_recent() -> count: the folders of the latest sessions into g_recent_path, newest first,
-# and as shown (the home folder as ~) into g_recent_label. The open project and folders that are
-# gone are left out.
+# session_recent() -> count: recent folders and workspace files in one newest-first list.
+# Labels abbreviate HOME and mark workspace files. Current and missing paths are skipped.
 FN session_recent
     PROLOGUE
     mov dword ptr [rip + recent_n], 0
@@ -408,15 +436,32 @@ FN session_recent
     lea rsi, [rip + g_recent_path]
     add rsi, rax
     call path_tilde
-    inc ebx
+    # Distinguish workspace files from folders in the shared recent list.
+    mov eax, ebx
+    shl eax, 12
+    lea rdi, [rip + g_recent_path]
+    add rdi, rax
+    call workspace_is_file
+    test eax, eax
+    jz 2f
+    mov eax, ebx
+    shl eax, 12
+    lea r12, [rip + g_recent_label]
+    add r12, rax
+    mov rdi, r12
+    call strlen
+    lea rdi, [r12 + rax]
+    lea rsi, [rip + .Lworkspace_label]
+    call cstr_copy
+2:  inc ebx
     jmp 1b
 9:  mov eax, [rip + recent_n]
     EPILOGUE
 
-# recent_cb(ctx, name, is_dir): a session file ("%home%me%project.session") ranks its folder by
-# when it was written, to the nanosecond: switching folders writes several within a second
+# recent_cb(ctx, name, is_dir): .session folder or .workspace marker, ranked by nanosecond mtime.
 recent_cb:
-    PROLOGUE
+    PROLOGUE 16
+    mov dword ptr [rsp], 0      # 0 folder session, 1 workspace marker
     mov r12, rsi
     test edx, edx
     jnz 9f
@@ -429,8 +474,23 @@ recent_cb:
     mov ecx, 8
     call str_ends
     test eax, eax
+    jnz .Lrecent_folder
+    cmp dword ptr [rip + g_remote], 0
+    jne 9f
+    mov rdi, r12
+    mov rsi, r13
+    lea rdx, [rip + .Lworkspace_recent]
+    mov ecx, 10
+    call str_ends
+    test eax, eax
     jz 9f
+    mov dword ptr [rsp], 1
+    sub r13, 10
+    jmp .Lrecent_path_length
+.Lrecent_folder:
     sub r13, 8
+.Lrecent_path_length:
+    test r13, r13
     jz 9f
     cmp r13, 4000
     ja 9f
@@ -525,6 +585,10 @@ recent_cb:
 21: lea rdi, [rip + rc_path]
 .endif
     mov rsi, [rip + g_project]
+    cmp dword ptr [rsp], 0
+    je .Lrecent_current
+    mov rsi, [rip + g_ws_file]
+.Lrecent_current:
     test rsi, rsi
     jz 3f
     call strcmp_eq
@@ -532,8 +596,19 @@ recent_cb:
     jnz 9f
 3:  lea rdi, [rip + rc_path]
     call vfs_is_dir             # the host's folder in a remote window
+    cmp dword ptr [rsp], 0
+    jne .Lrecent_workspace_exists
     test eax, eax
     jz 9f
+    jmp .Lrecent_timestamp
+.Lrecent_workspace_exists:
+    test eax, eax
+    jnz 9f
+    lea rdi, [rip + rc_path]
+    call file_missing
+    test eax, eax
+    jnz 9f
+.Lrecent_timestamp:
     mov rdi, [rip + rc_dir + SB_ptr]
 .ifdef WINDOWS
     mov rsi, r12
@@ -777,6 +852,8 @@ FN session_restore
 .Llocal_state: .asciz "/.local/state"
 .Lrhun_dir: .asciz "/rhun"
 .Lext: .asciz ".session"
+.Lworkspace_recent: .asciz ".workspace"
+.Lworkspace_label: .asciz " (Workspace)"
 .Llast_project: .asciz "/last-project"
 .Ltrusted: .asciz "/trusted-folders"
 .Lpercent: .asciz "%%25"

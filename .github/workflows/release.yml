@@ -167,7 +167,20 @@ jobs:
         id: build
         run: python tools/build-windows.py test
       - name: Native tests
-        run: python tests/windows.py
+        env:
+          RHUN_TEST_ARTIFACTS: build/stabilization/windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/stabilization/windows | Out-Null
+          python tests/windows.py 2>&1 | Tee-Object build/stabilization/windows/native-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-diagnostics
+          path: build/stabilization/
+          if-no-files-found: ignore
       # SignPath signs both executables once SIGNPATH_ORGANIZATION_ID is set (docs/windows-signing.md);
       # the release waits for its manual approval there, and everything after ships the signed files.
       - name: Version

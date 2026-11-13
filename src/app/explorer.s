@@ -660,6 +660,11 @@ row_node:
     ret
 
 FN cmd_focus_explorer
+    push rbx
+    mov edi, [rip + g_explorer_place]
+    xor esi, esi
+    call place_set_collapsed
+    pop rbx
     mov dword ptr [rip + cfg_sidebar], 1
     mov dword ptr [rip + g_focus], FOCUS_EXPLORER
     mov edi, 1

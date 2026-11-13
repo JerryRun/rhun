@@ -16,8 +16,8 @@ import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
 EXE = Path(os.environ.get('RHUN_TEST_EXE', ROOT / 'build/rhun')).resolve()
-HIDDEN = 'explorer=0 agents=0 term=0'
-SHOWN = 'explorer=1 agents=1 term=0'
+HIDDEN = 'explorer=0 agents=0 term=0 git=0 timeline=0 terminal_position=0'
+SHOWN = 'explorer=1 agents=1 term=0 git=0 timeline=0 terminal_position=0'
 CONFIG = ('[editor]\ncursor_blink = false\n'
           '[files]\nrestore_session = false\nrestore_project = false\n'
           '[updates]\ncheck = false\n[git]\nenabled = false\n')
@@ -134,7 +134,7 @@ class FileLaunch(unittest.TestCase):
         before = self.config.read_bytes()
         out = self.run_editor([self.a], ['cmd toggle_sidebar', 'print-panels',
                                          'cmd toggle_agents', 'print-panels'])
-        self.assertEqual(out, ['explorer=1 agents=0 term=0', SHOWN])
+        self.assertEqual(out, ['explorer=1 agents=0 term=0 git=0 timeline=0 terminal_position=0', SHOWN])
         # both were on in the settings already: nothing to save
         self.assertEqual(self.config.read_bytes(), before)
         # once back, a toggle hides a panel as in any window, and that is saved
@@ -145,20 +145,20 @@ class FileLaunch(unittest.TestCase):
     def test_a_toggle_turns_on_a_panel_set_off(self):
         self.configure('sidebar = false\nagents_panel = false\n')
         out = self.run_editor([self.a], ['cmd toggle_agents', 'print-panels'])
-        self.assertEqual(out, ['explorer=0 agents=1 term=0'])
+        self.assertEqual(out, ['explorer=0 agents=1 term=0 git=0 timeline=0 terminal_position=0'])
         self.assertEqual((self.setting('sidebar'), self.setting('agents_panel')), ('false', 'true'))
 
     def test_focus_commands_show_the_panels(self):
         out = self.run_editor([self.a], ['cmd focus_explorer', 'print-panels',
                                          'cmd focus_agents', 'print-panels'])
-        self.assertEqual(out, ['explorer=1 agents=0 term=0', SHOWN])
+        self.assertEqual(out, ['explorer=1 agents=0 term=0 git=0 timeline=0 terminal_position=0', SHOWN])
 
     def test_a_settings_row_holds_in_the_window(self):
         # the explorer's row turned off and on again: the window follows the setting from then on
         y = settings_row_y('sidebar')
         out = self.run_editor([self.a], ['cmd settings', f'click 1027 {y}', 'print-panels',
                                          f'click 1027 {y}', 'print-panels'], size='1400x4200')
-        self.assertEqual(out, [HIDDEN, 'explorer=1 agents=0 term=0'])
+        self.assertEqual(out, [HIDDEN, 'explorer=1 agents=0 term=0 git=0 timeline=0 terminal_position=0'])
         self.assertEqual((self.setting('sidebar'), self.setting('agents_panel')), ('true', 'true'))
 
     def test_opening_a_folder_shows_the_panels(self):

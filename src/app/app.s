@@ -9,7 +9,6 @@
 .equ ID_TOG_AGENTS, 0x2005
 .equ ID_SETTINGS_BTN, 0x2006
 .equ ID_TOG_TERM, 0x2007
-.equ ID_GIT_BTN, 0x2008
 .equ ID_PROJECT_BTN, 0x2009
 .equ ID_TAB_NEW, 0x200a           # the + after the last tab
 .equ ID_TAB_END, 0x200b           # the strip's empty end
@@ -464,7 +463,7 @@ switch_continue:
 9:  mov dword ptr [rip + g_dirty], 1
     EPILOGUE
 
-# project_menu_open(x, y): Open Folder, Open File and the recent folders, under the project name
+# project_menu_open(x, y): Open Folder, Open File and recent folders/workspaces.
 project_menu_open:
     PROLOGUE
     mov r12d, edi
@@ -522,7 +521,7 @@ project_menu_open:
     mov dword ptr [rip + g_menu_keys], 1
     EPILOGUE
 
-# recent_open(): the recent folder picked in the project menu (the items after the line): this window
+# recent_open(): the recent folder or workspace picked in the project menu: this window
 # takes it up, or with Shift held another window opens it
 recent_open:
     mov eax, [rip + g_menu_index]
@@ -533,7 +532,14 @@ recent_open:
     add rdi, rax
     test dword ptr [rip + g_mods], MOD_SHIFT
     jnz app_new_window
-    jmp app_switch_project
+    push rbx
+    mov rbx, rdi
+    call workspace_open_file
+    test eax, eax
+    jnz 2f
+    mov rdi, rbx
+    call app_switch_project
+2:  pop rbx
 1:  ret
 
 # ---------------- tabs ----------------
@@ -2231,6 +2237,9 @@ FN app_on_motion
 FN app_on_modifiers
     mov [rip + g_mods], edi
     mov dword ptr [rip + g_dirty], 1
+    push rdi
+    call keys_ime_modifiers
+    pop rdi
     jmp viewpic_modifiers
 
 FN app_on_pointer_leave
@@ -2245,6 +2254,10 @@ FN app_on_button
     push rdi
     push rsi
     push rdx
+    call keys_ime_cancel
+    mov edi, [rsp + 16]
+    mov esi, [rsp + 8]
+    mov edx, [rsp]
     call ime_pointer
     pop rdx
     pop rsi
@@ -2331,6 +2344,8 @@ FN app_on_focus
     mov dword ptr [rip + g_mods], 0
 0:
     push rdi
+    call keys_ime_cancel
+    mov edi, [rsp]
     call viewpic_window_focus
     mov edi, [rsp]
     call keys_chord_cancel
@@ -2457,6 +2472,10 @@ FN app_on_key
     push rdi
     push rsi
     push rdx
+    call keys_ime_key
+    mov edi, [rsp + 16]
+    mov esi, [rsp + 8]
+    mov edx, [rsp]
     call fcitx_key
     pop rdx
     pop rsi
@@ -2604,7 +2623,22 @@ FN app_key_direct
     test eax, eax
     jnz 9f
     jmp .Lk_bind
-73: cmp eax, FOCUS_SCM
+73: cmp eax, FOCUS_GIT
+    jne .Lkey_scm
+    cmp r12d, KEY_ESCAPE
+    jne .Lkey_git
+    mov dword ptr [rip + g_focus], FOCUS_EDITOR
+    jmp 9f
+.Lkey_git:
+    mov edi, r12d
+    mov esi, r13d
+    mov edx, r14d
+    call gitview_key
+    test eax, eax
+    jnz 9f
+    jmp .Lk_bind
+.Lkey_scm:
+    cmp eax, FOCUS_SCM
     jne 74f
     mov edi, r12d
     mov esi, r13d
@@ -3012,7 +3046,7 @@ FN app_tick
 
 FN app_render
     mov dword ptr [rip + g_ime_valid], 0
-    PROLOGUE 64
+    PROLOGUE 80
     call ui_update_metrics
     call ui_begin
     mov dword ptr [rip + tip_cand], 0   # hovered-button candidates are collected below
@@ -3154,47 +3188,88 @@ FN app_render
     mov ecx, [rsp + 24]
     COLOR r8d, T_BORDER
     call gfx_fill
-5:  # editor column, the terminal panel under it
+5:  # Editor column and its terminal dock, bottom or right.
     mov edi, [rsp + 28]
     cmp dword ptr [rip + g_show_side], 0
     je 51f
     add edi, [rip + g_mt + 4*MI_1]
 51: mov [rsp + 40], edi
+    mov [rsp + 64], edi         # terminal x
+    mov eax, [rsp + 20]
+    mov [rsp + 68], eax         # terminal y
     mov eax, [rsp + 32]
     sub eax, edi
-    mov [rsp + 44], eax         # column w
+    mov [rsp + 44], eax         # editor width
+    mov [rsp + 72], eax         # terminal width
     mov eax, [rsp + 24]
-    mov [rsp + 48], eax         # editor h
-    cmp dword ptr [rip + g_term_open], 0
-    je 52f
-    mov edi, [rip + cfg_term_h]
-    call sc
-    M edx, MI_64
-    mov ecx, [rsp + 24]
-    sub ecx, edx
-    sub ecx, edx
-    cmp eax, ecx
-    cmovg eax, ecx
-    cmp eax, edx
-    cmovl eax, edx
-    mov [rsp + 52], eax         # panel h
-    mov ecx, [rsp + 24]
-    sub ecx, eax
-    mov [rsp + 48], ecx
-52: # the terminal's top edge (term_panel_draw: MI_3 either side of it) is its handle, so the editor
-    # above it does not take a press there too
+    mov [rsp + 48], eax         # editor height
+    mov [rsp + 76], eax         # terminal height
     cmp dword ptr [rip + g_term_open], 0
     je 54f
-    mov eax, [rsp + 40]
-    mov [rip + g_hole], eax
+    cmp dword ptr [rip + cfg_term_position], 0
+    jne .Ldock_right
+    mov edi, [rip + cfg_term_h]
+    call sc
+    mov ecx, [rsp + 24]
+    shr ecx, 1
+    M edx, MI_64
+    cmp eax, edx
+    cmovl eax, edx
+    mov edx, [rsp + 24]
+    sub edx, [rip + g_mt + 4*MI_64]
+    cmp edx, ecx
+    cmovl edx, ecx
+    cmp eax, edx
+    cmovg eax, edx
+    mov [rsp + 76], eax
+    sub [rsp + 48], eax
     mov eax, [rsp + 20]
     add eax, [rsp + 48]
+    mov [rsp + 68], eax
+    mov ecx, [rsp + 40]
+    mov [rip + g_hole], ecx
     sub eax, [rip + g_mt + 4*MI_3]
     mov [rip + g_hole + 4], eax
     mov eax, [rsp + 44]
     mov [rip + g_hole + 8], eax
     M eax, MI_3
     lea eax, [rax + rax + 1]
+    mov [rip + g_hole + 12], eax
+    jmp 54f
+.Ldock_right:
+    mov edi, 160
+    call sc
+    mov [rsp + 56], eax
+    mov edi, [rip + cfg_term_w]
+    call sc
+    mov edx, [rsp + 56]
+    cmp eax, edx
+    cmovl eax, edx
+    mov [rsp + 52], eax
+    mov edi, 240
+    call sc
+    mov ecx, [rsp + 44]
+    shr ecx, 1
+    mov edx, [rsp + 44]
+    sub edx, eax
+    cmp edx, ecx
+    cmovl edx, ecx
+    mov eax, [rsp + 52]
+    cmp eax, edx
+    cmovg eax, edx
+    mov [rsp + 72], eax
+    sub [rsp + 44], eax
+    mov eax, [rsp + 40]
+    add eax, [rsp + 44]
+    mov [rsp + 64], eax
+    sub eax, [rip + g_mt + 4*MI_3]
+    mov [rip + g_hole], eax
+    mov eax, [rsp + 20]
+    mov [rip + g_hole + 4], eax
+    M eax, MI_3
+    lea eax, [rax + rax + 1]
+    mov [rip + g_hole + 8], eax
+    mov eax, [rsp + 24]
     mov [rip + g_hole + 12], eax
 54: # remote hosts: the connection's bar over the column while it is not up
     mov edi, [rsp + 40]
@@ -3218,11 +3293,10 @@ FN app_render
     mov dword ptr [rip + g_hole + 12], 0
     cmp dword ptr [rip + g_term_open], 0
     je 53f
-    mov edi, [rsp + 40]
-    mov esi, [rsp + 20]
-    add esi, [rsp + 48]
-    mov edx, [rsp + 44]
-    mov ecx, [rsp + 52]
+    mov edi, [rsp + 64]
+    mov esi, [rsp + 68]
+    mov edx, [rsp + 72]
+    mov ecx, [rsp + 76]
     call term_panel_draw
 53: # the dividers over everything in the body: their line and cursor win
     cmp dword ptr [rip + g_show_side], 0
@@ -3973,28 +4047,7 @@ FN titlebar_draw
     test eax, UB_CLICK
     jz 82f
     call cmd_toggle_terminal
-82: cmp dword ptr [rip + g_git_on], 0
-    je 9f
-    sub r12d, r13d
-    sub r12d, [rsp + 48]
-    mov edi, ID_GIT_BTN
-    mov esi, r12d
-    mov edx, [rsp + 12]
-    sub edx, r13d
-    sar edx, 1
-    mov ecx, r13d
-    mov r8d, r13d
-    mov r9d, IC_BRANCH
-    call ui_icon_btn
-    mov r8d, eax
-    mov edi, ID_GIT_BTN
-    mov esi, r12d
-    M edx, MI_TITLE
-    mov ecx, r13d
-    call tip_note               # keeps the button flags in eax
-    test eax, UB_CLICK
-    jz 9f
-    call cmd_toggle_git
+82:
 9:  # a press on a button must not start a window move: the compositor would take the release
     cmp dword ptr [rip + g_hot], 0
     jne 13f
@@ -6621,6 +6674,15 @@ FN app_sync_panels
     jz 1f
     xor eax, eax
 1:  mov [rip + g_show_side], eax
+    test eax, eax
+    jnz .Lsync_side_focus
+    cmp dword ptr [rip + g_focus], FOCUS_SCM
+    je .Lsync_side_blur
+    cmp dword ptr [rip + g_focus], FOCUS_GIT
+    jne .Lsync_side_focus
+.Lsync_side_blur:
+    mov dword ptr [rip + g_focus], FOCUS_EDITOR
+.Lsync_side_focus:
     mov eax, [rip + cfg_agents]
     test dword ptr [rip + panels_hidden], 2
     jz 2f
@@ -6865,7 +6927,6 @@ font_paths:
     .quad cfg_font, cfg_ui_font, cfg_term_font, cfg_fallback_font, 0
 # tip_table: button, text, the handler it runs (0: not a command, no shortcut); 0 ends it
 tip_table:
-    .quad ID_GIT_BTN, .Ltip_git, cmd_toggle_git
     .quad ID_TOG_TERM, .Ltip_term, cmd_toggle_terminal
     .quad ID_TOG_AGENTS, .Ltip_agents, cmd_toggle_agents
     .quad ID_SETTINGS_BTN, .Ltip_settings, cmd_settings

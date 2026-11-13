@@ -16,7 +16,9 @@ Wayland 后端增加 text-input-v1 的激活、光标位置、预编辑与 UTF-8
 - 设置页面顶部点击 **Chinese / English hotkey** 直达配置，或搜索
   **输入法**、**快捷键**、**中英文切换**、**hotkey**、**chinese_toggle_key**；
   修改 **Chinese / English hotkey**；
-  默认 ctrl+alt+space，Enter 确认后立即生效并保存。留空关闭应用快捷键，无效键名保留原值。
+  默认 ctrl+alt+space，支持 ctrl+shift、alt+shift、ctrl+alt 等纯修饰键组合；
+  纯修饰键在松开时切换，组合期间执行其他快捷键不会误切换。Enter 确认后立即生效并保存。
+  留空关闭应用快捷键；设置页输入无效组合时保留原值并显示英文提示。
   对应配置为 [editor] chinese_toggle_key；Windows 原生版仍使用系统输入法切换键。
 - **空格**选择首项，**数字键**或鼠标点击选词；PgUp/PgDn 翻页，Esc 取消。
 - 编辑器、终端和普通文本框使用同一输入通道；密码/token 框跳过拼音处理。
@@ -45,8 +47,9 @@ Ubuntu amd64 的软件包。若现有系统缺少 Python D-Bus/GLib 或 dbus-run
 
 ## 字体
 
-个人启动器在文件存在时启用：代码和终端用 Consolas，界面和中文回退用微软雅黑。
-没有这些文件时保留内置字体和系统回退；不复制或分发 Windows 字体。
+个人启动器默认使用内置 Iosevka，缺失的中文字形由系统字体回退显示；不额外内置 Droid。
+不再自动设置 Windows 字体路径，避免启动时同步读取跨盘字体。现有用户自定义路径仍可使用，
+不复制或分发 Windows 字体。
 
 配置项：[editor] font、fallback_font、font_size；[terminal] font、font_size、line_height；
 [ui] font、font_size。Windows 字体路径在 /mnt/c/Windows/Fonts/。
@@ -163,3 +166,43 @@ Home/End 滚动，Tab 选择链接、Enter 打开。侧边预览获得焦点时�
 异常恢复：./tools/run-fcitx.sh /usr/bin/python3 tests/fcitx-failure.py。
 实机输入：./tools/run-fcitx.sh /usr/bin/python3 tests/fcitx-live.py --live，
 会打开唯一命名的测试窗口，用真实 Windows 按键验证中文候选、保存和最大化输入。
+
+## Shared sidebar and terminal docking
+
+The left sidebar contains Explore, Changes and Graph. Explore starts
+expanded; both Git blocks start collapsed and can be opened independently.
+Changes contains commit actions and changes. Graph contains the compact
+commit graph with single-line subject/author rows. Click a commit to expand or collapse its changed files directly below it. Ctrl+Shift+G toggles Changes;
+Git: Toggle Graph toggles the graph. The title bar Git button is removed.
+Narrow panels use icon actions with command tooltips and compact inline file rows. Enter/Space toggles commit files; Right expands and Left collapses.
+
+The terminal header includes Move Panel to Right / Bottom. Settings > Terminal >
+Terminal position provides the same choice. The position and separate width/height
+are saved in the project-local profile. Running terminals and their split layout
+stay alive when moved. No system settings are changed.
+
+
+## Terminal shell startup
+
+The terminal preserves the user's Bash startup files. Conda hook generation and
+automatic environment activation, plus NVM's automatic Node selection, can delay
+the first prompt even though the terminal pane is already open.
+
+Optional manual change in ~/.bashrc: replace the entire conda init block with
+loading the installed shell functions directly:
+
+    . "$HOME/soft/miniconda3/etc/profile.d/conda.sh"
+
+This keeps conda activate/deactivate available without generating the hook or
+activating base for each new terminal. When needed, run conda activate ENV_NAME.
+Activation itself still has its own cost. An environment inherited from the parent
+process is not deactivated by this change.
+
+Replace the NVM script loading line with:
+
+    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use
+
+Keep export NVM_DIR and the existing completion line. Node on the inherited PATH
+remains available; use nvm use VERSION (or nvm use for a project .nvmrc) when needed.
+The slow automatic manpath discovery then occurs only when selecting a version.
+These are instructions only: rhun does not edit ~/.bashrc, .condarc or system PATH.
