@@ -522,7 +522,7 @@ class ScmPanel(Base):
                                exts=exts, drop_waits=True)
 
     def test_the_panel_shows_status_buttons_and_groups(self):
-        out = self.start(self.provider(self.body()), 'cmd toggle_sidebar', 'wait 300', 'move 80 509', 'wait 700',
+        out = self.start(self.provider(self.body()), 'cmd toggle_sidebar', 'wait 300', 'move 80 537', 'wait 700',
                          'print-tip')
         self.assertIn('tip=new', out)                               # src/new.txt's tip record
         line = [l for l in out if l.startswith('scm 1 rhun-tests/hg ')]
@@ -559,20 +559,20 @@ class ScmPanel(Base):
         self.assertTrue(tabs[-1].endswith('*gone.txt'), out)     # a resource without a command opens its file
 
     def test_inline_buttons_run_their_actions(self):
-        # with the sidebar shown at 1000x600: a.txt's row is at y 481; its actions with icons are
+        # with the sidebar shown at 1000x600: a.txt's row is at y 509; its actions with icons are
         # buttons at its right end while it is hovered, the first rightmost
-        out = self.start(self.provider(self.body()), 'cmd toggle_sidebar', 'wait 300', 'move 100 481', 'wait 200',
-                         'click 210 481', 'wait 300', 'move 100 481', 'wait 200', 'click 184 481', 'wait 300')
+        out = self.start(self.provider(self.body()), 'cmd toggle_sidebar', 'wait 300', 'move 100 509', 'wait 200',
+                         'click 210 509', 'wait 300', 'move 100 509', 'wait 200', 'click 184 509', 'wait 300')
         log = self.fake_log('hg')
         runs = [(l.split()[3], log[i + 1]) for i, l in enumerate(log) if l.startswith('< 0 run hg.') and ' ref ' in l]
         self.assertEqual(runs, [('hg.stage', "| 'a.txt'"), ('hg.forget', "| 'a.txt'")], out)   # not the row's open
 
     def test_other_extensions_add_header_buttons(self):
         # scmProvider is the panel's provider while the items' clauses evaluate: the git-only item
-        # does not show, the hg one is the only button (x 222 in the header at y 320)
+        # does not show, the hg one is the only button (x 222 in the header at y 348)
         self.provider(self.body())
         exts = Menus.tools(self)
-        self.start(exts, 'cmd toggle_sidebar', 'wait 300', 'click 222 320', 'wait-ext tools running', 'wait 300')
+        self.start(exts, 'cmd toggle_sidebar', 'wait 300', 'click 222 348', 'wait-ext tools running', 'wait 300')
         log = self.fake_log('tools')
         runs = [(l.split()[3], log[i + 1]) for i, l in enumerate(log) if l.startswith('< 0 run tools.')]
         self.assertEqual(runs, [('tools.other', '| ' + repr(f'scm rhun-tests/hg {self.proj.as_posix()}\n'))], log)

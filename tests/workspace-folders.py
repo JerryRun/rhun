@@ -128,7 +128,7 @@ class Folders(lifecycle.Base):
         self.assertLess(add, destination)
         self.assertLess(destination, save)
         self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'proj', 'lib'])
-        self.assertIn(f'workspace={wsfile} title=我的工作', out)
+        self.assertIn(f'workspace={wsfile} title=我的工作 (WORKSPACE)', out)
         self.assertIn('toast=Folder added to workspace', out)
         self.assertIn(f'path = {self.lib}', wsfile.read_text())
         # Fresh state: the definition alone restores the added folder.
@@ -136,7 +136,7 @@ class Folders(lifecycle.Base):
             f.unlink()
         out = self.run_ws([wsfile], ['print-folders', 'print-workspace'])
         self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'lib'])
-        self.assertIn(f'workspace={wsfile} title=我的工作', out)
+        self.assertIn(f'workspace={wsfile} title=我的工作 (WORKSPACE)', out)
 
     def test_plain_directory_empty_space_has_no_workspace_action(self):
         self.workspace_ui()
@@ -176,7 +176,7 @@ class Folders(lifecycle.Base):
             f'type {destination}/', 'key Return', 'print-palette', 'key ctrl+a',
             f'type {wsfile}', 'key Return', 'print-folders', 'print-workspace'])
         self.assertIn(f'field={destination}/proj.rhun-workspace', out)
-        self.assertIn(f'workspace={wsfile} title=team', out)
+        self.assertIn(f'workspace={wsfile} title=team (WORKSPACE)', out)
         self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'lib'])
         self.assertIn(f'path = {self.app}', wsfile.read_text())
         self.assertIn(f'path = {self.lib}', wsfile.read_text())
@@ -199,7 +199,7 @@ class Folders(lifecycle.Base):
             'key ctrl+a', f'type {other}/', 'key Return', 'print-folders', 'print-workspace'])
         self.assertFalse(any(l.startswith('prompt=') for l in out), out)
         self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'lib', 'other'])
-        self.assertIn(f'workspace={wsfile} title=team', out)
+        self.assertIn(f'workspace={wsfile} title=team (WORKSPACE)', out)
         saved = wsfile.read_text()
         self.assertIn(f'path = {other}', saved)
         self.assertIn('[rt/x]\nsetting.k = 1', saved)
@@ -227,7 +227,7 @@ class Folders(lifecycle.Base):
         self.assertTrue((self.lib / 'pkg/p.go').exists())
         self.assertNotIn(f'path = {self.lib}', wsfile.read_text())
         self.assertIn('[rt/x]\nsetting.k = 1', wsfile.read_text())
-        self.assertIn(f'workspace={wsfile} title=team', out)
+        self.assertIn(f'workspace={wsfile} title=team (WORKSPACE)', out)
         # The remaining root remains a first-level row.
         self.assertEqual(out.count('Remove Folder from Workspace'), 2, out)
 
@@ -237,7 +237,7 @@ class Folders(lifecycle.Base):
         out = self.run_ws([wsfile], ['folder-remove 1', 'wait 200',
             'print-folders', 'print-workspace'])
         self.assertEqual([f['name'] for f in self.folders(out)], ['lib'])
-        self.assertIn(f'workspace={wsfile} title=team', out)
+        self.assertIn(f'workspace={wsfile} title=team (WORKSPACE)', out)
         saved = wsfile.read_text()
         self.assertNotIn('path = .\n', saved)
         self.assertIn(f'path = {self.lib}', saved)
@@ -254,7 +254,7 @@ class Folders(lifecycle.Base):
             'folder-remove 1', 'key Escape', 'print-folders', 'print-workspace',
             'cmd save', f'open {other}', 'print-workspace', 'print-folders'])
         self.assertEqual(wsfile.read_text(), original)
-        self.assertIn(f'workspace={wsfile} title=team', out)
+        self.assertIn(f'workspace={wsfile} title=team (WORKSPACE)', out)
         self.assertIn('workspace= title=other', out)
         self.assertEqual([f['name'] for f in self.folders(out)], ['proj', 'lib', 'other'])
 

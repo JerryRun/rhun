@@ -307,8 +307,8 @@ class Testing(unittest.TestCase):
         self.assertIn('covered=3 partial=1 missed=0 lines=3:C,5:C,6:P,7:C', out)
 
     def test_an_expected_actual_tab_is_no_git_diff(self):
-        # with Git on, a diff tab of the values beside a changed file: Open Changes finds the file's
-        # own diff, and quitting remembers no Git diff for the values' tab
+        # Open Changes reuses the changed working file in comparison mode while
+        # leaving the test result's expected/actual tab independent of Git.
         env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', HOME=self.work.as_posix())
         for cmd in (['git', 'init', '-q'], ['git', '-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '.'],
                     ['git', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'one']):
@@ -321,7 +321,8 @@ class Testing(unittest.TestCase):
                                'cmd next_tab', 'cmd git_changes', 'wait 1500', 'print-tabs'])
         tabs = [l for l in out if l.startswith('tabs=')][-1]
         self.assertIn('Expected \u2194 Actual: TestB', tabs)
-        self.assertEqual(tabs.count('a_test.go'), 2, tabs)
+        self.assertEqual(tabs.count('a_test.go'), 1, tabs)
+        self.assertEqual(tabs.count(' | '), 1, tabs)
 
     def test_failures_become_problems_and_go_with_their_item(self):
         out = self.run_editor([*EXPAND, 'cmd test_run_all', 'wait-tests', 'wait 100', 'print-marks'])

@@ -41,7 +41,26 @@ jobs:
       - name: Desktop tools
         run: sudo bash tools/setup-linux-desktop.sh install
       - name: Tests
-        run: tests/run.sh
+        env:
+          RHUN_TEST_ARTIFACTS: build/stabilization/linux
+        shell: bash
+        run: |
+          mkdir -p build/stabilization/linux
+          if tests/run.sh 2>&1 | tee build/stabilization/linux/native-tests.log; then
+            exit 0
+          else
+            status=$?
+            echo 'Failed Linux checks (see linux-release-diagnostics for the full log):'
+            grep -nE '^(FAIL|ERROR|FAILED|Traceback|ModuleNotFoundError)' build/stabilization/linux/native-tests.log || true
+            exit "$status"
+          fi
+      - name: Linux test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release-diagnostics
+          path: build/stabilization/
+          if-no-files-found: ignore
       - name: Installer tests
         run: sh tests/install.sh
       - name: Native file launches (X11 and Wayland)
