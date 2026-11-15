@@ -1,5 +1,20 @@
 # Main release preparation verification
 
+## 0.19.6 CI regression correction (2026-11-16)
+
+The 0.19.5 Windows release gate failed keys, config-strings and agents/metadata.
+The key registry test must respect terminal-only paste and selection-only copy
+conditions. The string ownership test must use a valid shortcut instead of
+"value" for terminal hotkeys. The Agents Settings test used row offsets which
+included hidden shortcut rows; it now filters by agents.codex before clicking.
+The Agents failure also reproduced on Linux. These corrections retain the
+runtime validation and focus guards, and do not disable any release checks.
+
+All three corrected checks passed with native Windows executables in an isolated
+temporary directory. The complete Linux Agents suite passed 81 tests with seven
+platform skips; all 15 terminal key tests passed. The full Linux/Windows CI suites
+must pass before the new release is published. The failed v0.19.5 tag is retained.
+
 ## 0.19.5 release preparation (2026-11-16)
 
 This release includes the app-private Linux Pinyin runtime and installer option,

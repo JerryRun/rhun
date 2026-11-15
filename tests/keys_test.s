@@ -36,8 +36,21 @@ FN main
     jz .Lfail
     mov edi, eax
     mov esi, edx
+    mov r15, [rbx + CMD_fn]
+    lea rax, [rip + cmd_term_copy]
+    cmp r15, rax
+    jne 1f
+    # Copy is deliberately inactive without a terminal selection. Selection
+    # dispatch and Ctrl+C passthrough are covered by terminal-keys.py.
+    xor r15d, r15d
+1:  lea rax, [rip + cmd_term_paste]
+    cmp r15, rax
+    jne 2f
+    mov dword ptr [rip + g_focus], FOCUS_TERMINAL
+2:
     call keys_lookup
-    cmp rax, [rbx + CMD_fn]
+    mov dword ptr [rip + g_focus], FOCUS_EDITOR
+    cmp rax, r15
     jne .Lfail
     jmp .Lbinding
 .Lnext:

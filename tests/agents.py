@@ -1039,33 +1039,16 @@ class CodexDiscovery(unittest.TestCase):
             process.stderr.close()
 
     def test_sources_changed_in_settings_are_passed_before_save(self):
-        import re
         self.make_history(1)
         directory = self.home / '.claude/projects' / claude_slug(str(self.project))
         directory.mkdir(parents=True)
         (directory / 'c.jsonl').write_text(json.dumps({'type': 'user', 'message': {
             'role': 'user', 'content': 'Claude only'}}) + '\n')
-        rows = []
-        for line in (ROOT / 'src/app/config.s').read_text().splitlines():
-            match = re.match(r'\s+SETTING(?:_ACTION)? \.Ls_(\w+), (\w+), (\w+)', line)
-            if match:
-                rows.append(match.groups())
-        y, previous = 268, None
-        for section, key, _ in rows:
-            if (section, key) == ('ui', 'theme'):
-                continue                # shown only without Follow system dark mode
-            if section != previous:
-                y += 48
-                previous = section
-            if (section, key) == ('agents', 'codex'):
-                y += 32
-                break
-            y += 72
         script = self.home / 'commands.rsc'
-        # Codex's switch, on the page beside the agents panel
-        script.write_text('wait-agents\ncmd settings\n' + f'click 955 {y}\n'
+        # Filtering avoids depending on unrelated or platform-hidden Settings rows.
+        script.write_text('wait-agents\ncmd settings\ntype agents.codex\nclick 955 348\n'
                           'wait-agents\nprint-agents\nquit\n')
-        result = subprocess.run([str(EXE), str(self.project), '--headless', '1400x8000',
+        result = subprocess.run([str(EXE), str(self.project), '--headless', '1400x800',
                                  '--scale', '1', '--script', str(script)], env=self.env,
                                 capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)

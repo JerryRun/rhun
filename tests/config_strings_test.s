@@ -43,20 +43,32 @@ assign_all:
     lea rax, [rip + cfg_chinese_toggle_key]
     cmp [rbx + SET_ptr], rax
     je 8f                       # shortcut validation has dedicated UI/input tests
-    mov rdi, rbx
     lea rsi, [rip + value]
     mov edx, 5
+    lea rax, [rip + cfg_term_copy_key]
+    cmp [rbx + SET_ptr], rax
+    je .Lshortcut_value
+    lea rax, [rip + cfg_term_paste_key]
+    cmp [rbx + SET_ptr], rax
+    jne .Lassign_value
+.Lshortcut_value:
+    lea rsi, [rip + shortcut]
+    mov edx, 10                 # validated shortcut strings still exercise allocation ownership
+.Lassign_value:
+    mov r14, rsi
+    mov r15, rdx
+    mov rdi, rbx
     call setting_assign
     # Self assignment must read the input before releasing the previous value.
     mov rax, [rbx + SET_ptr]
     mov rdi, rbx
     mov rsi, [rax]
-    mov edx, 5
+    mov rdx, r15
     call setting_assign
     mov rax, [rbx + SET_ptr]
     mov rdi, [rax]
-    mov esi, 5
-    lea rdx, [rip + value]
+    mov rsi, r15
+    mov rdx, r14
     call str_eq_cstr
     test eax, eax
     jz .Lassign_fail
@@ -68,4 +80,5 @@ assign_all:
     jmp sys_exit
 .section .rodata
 value: .asciz "value"
+shortcut: .asciz "ctrl+alt+p"
 ok: .asciz "ok\n"
