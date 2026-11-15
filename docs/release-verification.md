@@ -1,5 +1,25 @@
 # Main release preparation verification
 
+## 0.19.7 private-runtime APT isolation (2026-11-16)
+
+The 0.19.6 Linux bundle step used the runner's default APT sources after desktop
+setup had refreshed indexes through temporary Ubuntu sources. Source/index
+mismatch hid valid packages and left installed versions without download URLs.
+The package names are valid for Ubuntu 24.04 amd64.
+
+Runtime packaging now updates and downloads with the same private Ubuntu
+main/restricted/universe/multiverse sources and temporary index/cache directories.
+An empty private dpkg status prevents the runner's installed versions from
+selecting packages unavailable in those indexes. APT update hooks are disabled
+for this packaging operation. No system sources, indexes or package state are
+changed. A failed index update stops packaging before downloads.
+
+Validation downloaded all 27 packages (51.9 MB) into an empty cache and produced
+a fresh private runtime. Both source-isolation/failure tests and four scratch-HOME
+installation/input/Settings/update/uninstall checks passed. The release workflow
+runs the new packaging tests before bundling. Native CI remains the publication
+gate; this local verification does not establish a published release.
+
 ## 0.19.6 CI regression correction (2026-11-16)
 
 The 0.19.5 Windows release gate failed keys, config-strings and agents/metadata.

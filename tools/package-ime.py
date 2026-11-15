@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 DEST = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / 'build/ime-runtime').resolve()
@@ -22,6 +23,41 @@ libpython3.12-minimal libpython3.12-stdlib python3-dbus python3-gi
 gir1.2-glib-2.0 gir1.2-girepository-2.0'''.split()
 
 
+def download_packages(directory):
+    # Desktop CI refreshes indexes with temporary sources. The runner's default
+    # sources may name different mirrors, and its installed versions may no
+    # longer exist there. Resolve and download against the same private indexes.
+    with tempfile.TemporaryDirectory(prefix='rhun-ime-apt-', dir=directory.parent) as tmp:
+        work = Path(tmp)
+        (work / 'empty').mkdir()
+        (work / 'lists/partial').mkdir(parents=True)
+        (work / 'archives/partial').mkdir(parents=True)
+        sources = work / 'ubuntu.list'
+        sources.write_text(
+            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] '
+            'https://archive.ubuntu.com/ubuntu noble main restricted universe multiverse\n'
+            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] '
+            'https://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse\n'
+            'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] '
+            'https://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse\n')
+        config = work / 'apt.conf'
+        config.write_text(
+            '#clear APT::Update::Pre-Invoke;\n'
+            '#clear APT::Update::Post-Invoke;\n'
+            '#clear APT::Update::Post-Invoke-Success;\n')
+        apt = ['apt-get', '-c', str(config),
+               '-o', 'Dir::Etc::SourceList=' + str(sources),
+               '-o', 'Dir::Etc::SourceParts=' + str(work / 'empty'),
+               '-o', 'Dir::State::lists=' + str(work / 'lists'),
+               '-o', 'Dir::State::status=/dev/null',
+               '-o', 'Dir::Cache::archives=' + str(work / 'archives'),
+               '-o', 'Dir::Cache::pkgcache=', '-o', 'Dir::Cache::srcpkgcache=',
+               '-o', 'Acquire::Retries=2', '-o', 'Acquire::http::Timeout=20',
+               '-o', 'Acquire::https::Timeout=20']
+        subprocess.run([*apt, '--error-on=any', 'update'], check=True)
+        subprocess.run([*apt, 'download', *PACKAGES], cwd=directory, check=True)
+
+
 def main():
     if subprocess.check_output(['dpkg', '--print-architecture'], text=True).strip() != 'amd64':
         raise SystemExit('Chinese Pinyin packaging requires Ubuntu 24.04 amd64.')
@@ -30,8 +66,7 @@ def main():
         raise SystemExit('Chinese Pinyin packaging requires Ubuntu 24.04 amd64.')
     debs = ROOT / 'build/ime-debs'
     debs.mkdir(parents=True, exist_ok=True)
-    subprocess.run(['apt-get', '-o', 'Acquire::Retries=2', '-o',
-        'Acquire::http::Timeout=20', 'download', *PACKAGES], cwd=debs, check=True)
+    download_packages(debs)
     DEST.mkdir(parents=True, exist_ok=True)
     for deb in sorted(debs.glob('*.deb')):
         subprocess.run(['dpkg-deb', '-x', str(deb), str(DEST)], check=True)

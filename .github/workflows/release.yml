@@ -71,6 +71,7 @@ jobs:
         run: RHUN_DIST=1 ./build.sh release
       - name: Bundle app-private Chinese input
         run: |
+          /usr/bin/python3 tests/package-ime.py
           /usr/bin/python3 tools/package-ime.py
           /usr/bin/python3 tests/installed-ime.py
       - name: Pack
