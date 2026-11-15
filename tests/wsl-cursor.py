@@ -320,7 +320,7 @@ $info=New-Object CursorTest+Info;$info.Size=[Runtime.InteropServices.Marshal]::S
 [void][CursorTest]::GetCursorInfo([ref]$info)
 Write-Output ('survivor flags='+$info.Flags+' cursor='+$info.Cursor)
 if($info.Flags -ne 1 -or $info.Cursor -eq [IntPtr]::Zero){throw 'dirty survivor cursor missing'}
-Check-Pointer $a 500 300 'dirty survivor after other dirty window closes' 
+Check-Pointer $a 500 300 'dirty survivor after other dirty window closes'
 '''
                 result = subprocess.run([PS, '-NoProfile', '-NonInteractive', '-Command', recovery],
                     capture_output=True, timeout=15)
