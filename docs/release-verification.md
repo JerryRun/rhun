@@ -1,5 +1,31 @@
 # Main release preparation verification
 
+## 0.19.5 release preparation (2026-11-16)
+
+This release includes the app-private Linux Pinyin runtime and installer option,
+shared keyboard-shortcut editing, terminal copy/paste bindings, host input-mode
+observation, and the WSLg cursor and bounded maximize-monitor fixes. Windows
+continues to use its native system input method. No host configuration is changed.
+
+The user accepted the latest dual-monitor build. Disposable-window regressions
+verified actual cross-screen dragging and maximization, native cursor bitmaps,
+Chinese/English document commits, unsaved-peer cursor recovery, toolbar controls,
+and helper shutdown. These host-specific checks are recorded in ime-verification.md.
+Linux cursor and IME ownership wire tests are part of tests/run.sh. GitHub Actions
+remains responsible for the full native Linux/Windows release suites and publishing
+the packages only when both platform jobs succeed.
+
+Local preflight passed the Linux test build, Windows x64 release cross-build
+and ZIP packaging, both Linux wire-test output fixtures, 14 Chinese-toggle
+cases, 14 chord cases, 15 terminal-key cases, 14 Settings UI cases, 17 Settings
+search cases, and the installed-runtime tests (4 cases). Download checks passed
+8 cases with 4 BusyBox-dependent skips. Python/shell syntax, workflow YAML and
+git diff whitespace checks passed. This is focused verification, not a claim
+that the full native CI suites have already passed.
+
+The older preparation notes below describe the 0.19.2 merge and do not describe
+the bundled-input packaging used by 0.19.5.
+
 Date: 2026-11-12
 
 Merged origin/main (upstream 0.19.2) with the personal customizations. Native XIM /

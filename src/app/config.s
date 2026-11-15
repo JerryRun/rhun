@@ -87,6 +87,10 @@ cfg_scroll_sens: .long 100       # scroll_sensitivity: multiplier in hundredths
 cfg_fast_sens: .long 400         # fast_scroll_sensitivity: multiplier while alt is held
 .globl cfg_editor_scroll_sens
 cfg_editor_scroll_sens: .long 50 # editor-only wheel multiplier; panels keep their existing speed
+.globl cfg_chinese_input
+cfg_chinese_input: .long 0      # app-private Pinyin engine, enabled in Settings or by the installer
+.globl cfg_chinese_follow_host
+cfg_chinese_follow_host: .long 1 # WSLg: observe Windows mode, keep private composition
 .globl cfg_term_font_size, cfg_term_scrollback, cfg_term_h, cfg_term_shell, cfg_git
 .globl cfg_term_line_height, cfg_term_font
 .globl cfg_term_position, cfg_term_w
@@ -120,6 +124,14 @@ cfg_file_icons: .quad .Lempty   # [ui] file_icons: rhun (empty), none or OWNER/N
 cfg_exclude: .quad .Ldef_exclude
 cfg_term_shell: .quad .Lempty
 cfg_term_font: .quad .Lempty
+.globl cfg_term_copy_key, cfg_term_paste_key
+.ifdef MACOS
+cfg_term_copy_key: .quad .Lempty
+cfg_term_paste_key: .quad .Lempty
+.else
+cfg_term_copy_key: .quad .Lterm_copy_default
+cfg_term_paste_key: .quad .Lterm_paste_default
+.endif
 cfg_commit_model: .quad .Ldefault_model
 .globl cfg_save_actions
 cfg_save_actions: .quad .Lempty
@@ -312,13 +324,33 @@ FN setting_assign
 3:  # Invalid shortcut text preserves the last usable binding; empty disables it.
     lea rax, [rip + cfg_chinese_toggle_key]
     cmp r14, rax
-    jne 30f
+    jne .Lcfg_terminal_key
     test r13, r13
     jz 30f
     mov rdi, r12
     mov rsi, r13
     call parse_chinese_toggle
     test eax, eax
+    jz 9f
+    jmp 30f
+.Lcfg_terminal_key:
+    lea rax, [rip + cfg_term_copy_key]
+    cmp r14, rax
+    je .Lcfg_clip_key
+    lea rax, [rip + cfg_term_paste_key]
+    cmp r14, rax
+    jne 30f
+.Lcfg_clip_key:
+    test r13, r13
+    jz 30f
+    mov rdi, r12
+    mov rsi, r13
+    call parse_combo
+    test eax, eax
+    jz 9f
+    test edx, MOD_SUPER
+    jnz 9f
+    test edx, MOD_CTRL | MOD_ALT
     jz 9f
 30: # Copy first: the input may be the current setting's own allocation.
     lea rax, [rip + cfg_save_actions]
@@ -846,6 +878,8 @@ cfg_def_theme: .asciz "rhun-dark"
 cfg_def_light_theme: .asciz "rhun-light"
 .Lempty: .asciz ""
 .Lchinese_toggle_default: .asciz "ctrl+alt+space"
+.Lterm_copy_default: .asciz "ctrl+c"
+.Lterm_paste_default: .asciz "ctrl+v"
 .Ldef_exclude: .asciz ".git node_modules target build .cache __pycache__ .venv .idea .DS_Store"
 .Ldef_sources: .asciz "claude codex grok opencode"
 .Lold_sources: .asciz "claude codex"
@@ -938,6 +972,8 @@ g_settings:
     SETTING .Ls_editor, font, ST_STR, cfg_font, 0, 0, 0, 0, "Editor font", "Path to a monospace .ttf file. Empty uses the built-in Iosevka."
     SETTING .Ls_editor, fallback_font, ST_STR, cfg_fallback_font, 0, 0, 0, 0, "Chinese fallback font", "Path to a TrueType .ttf or .ttc used for missing characters before system fonts."
     SETTING .Ls_editor, chinese_toggle_key, ST_STR, cfg_chinese_toggle_key, 0, 0, 0, 0, "Chinese / English hotkey", "Linux/WSL shortcut, e.g. ctrl+shift or ctrl+alt+space. Modifier-only shortcuts toggle on release; empty disables. Windows uses the system IME."
+    SETTING .Ls_editor, chinese_input, ST_BOOL, cfg_chinese_input, 0, 1, 1, 0, "Enable Chinese Pinyin input", "Linux/WSL: enable the bundled app-private input engine. Takes effect immediately. Windows uses the system IME."
+    SETTING .Ls_editor, chinese_follow_host, ST_BOOL, cfg_chinese_follow_host, 0, 1, 1, 0, "Follow Windows input mode", "WSLg: follow Windows Chinese/English mode with the private Pinyin engine. Turn off to use rhun input shortcuts. Takes effect immediately."
     SETTING .Ls_editor, scroll_sensitivity, ST_INT, cfg_editor_scroll_sens, 10, 200, 10, 1, "Editor scroll sensitivity", "Editor wheel speed: 0.5 by default, 1.0 restores the previous speed. Also affected by the global scroll multiplier."
     SETTING .Ls_editor, line_height, ST_INT, cfg_line_height, 100, 250, 5, 1, "Line height", "Multiple of the font size."
     SETTING .Ls_editor, tab_width, ST_INT, cfg_tab_width, 1, 16, 1, 0, "Tab width", "Columns per tab stop."
@@ -986,6 +1022,8 @@ g_settings:
     SETTING .Ls_agents, grok, ST_BOOL, cfg_agents_grok, 0, 1, 1, 0, "Grok Build", "Show Grok Build sessions in the agents panel."
     SETTING .Ls_agents, opencode, ST_BOOL, cfg_agents_opencode, 0, 1, 1, 0, "OpenCode", "Show OpenCode sessions in the agents panel."
     SETTING .Ls_terminal, shell, ST_STR, cfg_term_shell, 0, 0, 0, 0, "Shell", "Program the terminal runs. Empty uses $SHELL."
+    SETTING .Ls_terminal, copy_key, ST_STR, cfg_term_copy_key, 0, 0, 0, 0, "Terminal copy hotkey", "Copy selected terminal text. Without a selection the key reaches the program, so Ctrl+C still interrupts. Empty disables this extra shortcut."
+    SETTING .Ls_terminal, paste_key, ST_STR, cfg_term_paste_key, 0, 0, 0, 0, "Terminal paste hotkey", "Paste clipboard text into the terminal, e.g. ctrl+v. Ctrl+Shift+V and Shift+Insert remain available. Empty disables this extra shortcut."
     SETTING .Ls_terminal, font_size, ST_INT, cfg_term_font_size, 8, 40, 1, 0, "Terminal font size", "Font size of the terminal panel."
     SETTING .Ls_terminal, font, ST_STR, cfg_term_font, 0, 0, 0, 0, "Terminal font", "Path to a monospace .ttf file. Empty uses the editor font."
     SETTING .Ls_terminal, line_height, ST_INT, cfg_term_line_height, 100, 250, 5, 1, "Terminal line height", "Multiple of the font's own line height."

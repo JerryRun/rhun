@@ -22,7 +22,8 @@ MOD = 'cmd' if sys.platform == 'darwin' else 'ctrl'
 ROWS = []
 for line in (ROOT / 'src/app/config.s').read_text(encoding='utf-8').splitlines():
     match = re.match(r'\s+SETTING(?:_ACTION)? \.Ls_(\w+), (\w+), (\w+)', line)
-    if match:
+    if match and (match[1], match[2]) not in {
+            ('editor', 'chinese_toggle_key'), ('terminal', 'copy_key'), ('terminal', 'paste_key')}:
         ROWS.append(match.groups())
 
 # These values are the public settings contract, independent of UI step logic.
@@ -30,7 +31,7 @@ BOOLS = {
     'ui': 'follow_system sidebar agents_panel tooltips auto_hide_scrollbars',
     'editor': ('insert_spaces line_numbers highlight_line animate_disk_changes match_brackets '
                'indent_guides word_wrap whitespace cursor_blink smooth_caret auto_pairs '
-               'scroll_past_end vim_mode side_diff '
+               'scroll_past_end vim_mode side_diff chinese_input chinese_follow_host '
                # language features
                'complete_replace complete_commit_characters lightbulb format_on_type format_on_paste '
                # editor presentation
@@ -59,7 +60,6 @@ INTS = {
 }
 STRINGS = {
     ('editor', 'fallback_font'): 'missing fallback café.ttf',
-    ('editor', 'chinese_toggle_key'): 'ctrl+alt+p',
     ('ui', 'font'): 'missing font café.ttf', ('editor', 'font'): 'missing mono café.ttf',
     ('ui', 'file_icons'): 'someone/icons/missing',
     ('files', 'exclude'): '.git hidden café',
@@ -214,10 +214,13 @@ class SettingsUI(unittest.TestCase):
 
     def test_every_string_commits_enter_cancels_escape_and_commits_blur(self):
         for (section, key), value in STRINGS.items():
+            original = 'ctrl+shift+c' if key == 'copy_key' else 'ctrl+shift+v' if key == 'paste_key' else 'original'
             for finish, expected in [('key Return', value), ('key Escape', 'original'),
                                      ('click 350 90', value)]:
+                if finish == 'key Escape':
+                    expected = original
                 with self.subTest(setting=f'{section}.{key}', finish=finish):
-                    self.configure(section, key, 'original')
+                    self.configure(section, key, original)
                     self.run_editor([f'click 900 {self.row_y(section, key)}', f'key {MOD}+a',
                                      'type ' + value, finish])
                     self.assertEqual(self.value(section, key), expected)

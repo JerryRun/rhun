@@ -2786,6 +2786,10 @@ FN cmd_clear_terminal
 1:  ret
 
 # cmd_term_copy(): the selection to the clipboard
+FN term_has_selection
+    mov eax, [rip + sel_on]
+    ret
+
 FN cmd_term_copy
     PROLOGUE
     call cur_sess
@@ -2919,7 +2923,7 @@ FN term_panel_write
 
 # term_panel_key(keysym, cp, mods) -> 1 if the terminal took the key
 #   zoom, ctrl+shift combinations, ctrl+` and tab switching stay with rhun, but Close All Tabs'
-#   keys go to the program; ctrl+shift+c/v copy and paste
+#   keys go to the program; ctrl+shift+c/v copy and paste; extra clipboard keys are configurable
 FN term_panel_key
     PROLOGUE
     mov r12d, edi
@@ -2954,6 +2958,15 @@ FN term_panel_key
 .endif
     jmp .Ltk_send
 .Ltk_unbound:
+    lea rcx, [rip + cmd_term_copy]
+    cmp rax, rcx
+    je .Ltk_no
+    lea rcx, [rip + cmd_term_paste]
+    cmp rax, rcx
+    je .Ltk_no
+    lea rcx, [rip + keys_chord_start]
+    cmp rax, rcx
+    je .Ltk_no
     # Personal pane controls and input-mode switching belong to rhun. Respect
     # their configured bindings rather than writing control bytes into the PTY.
     lea rcx, [rip + cmd_toggle_chinese]
@@ -3011,6 +3024,8 @@ FN term_panel_key
     cmp rax, rcx
     je .Ltk_no
 .endif
+    # Other Ctrl+Shift application shortcuts still belong to rhun. Clipboard
+    # keys can be explicitly unbound, in which case they reach the program.
     mov eax, r14d
     and eax, MOD_CTRL | MOD_SHIFT
     cmp eax, MOD_CTRL | MOD_SHIFT
@@ -3018,13 +3033,9 @@ FN term_panel_key
     mov eax, r12d
     or eax, 0x20
     cmp eax, 'c'
-    jne 1f
-    call cmd_term_copy
-    jmp .Ltk_yes
-1:  cmp eax, 'v'
+    je 2f
+    cmp eax, 'v'
     jne .Ltk_no
-    call cmd_term_paste
-    jmp .Ltk_yes
 2:  test r14d, MOD_CTRL
     jz 3f
     cmp r12d, '`'
@@ -3039,7 +3050,7 @@ FN term_panel_key
     je .Ltk_no
 3:  test r14d, MOD_SHIFT
     jz 5f
-    # shift+PageUp / PageDown scroll back; shift+Insert pastes
+    # Shift+PageUp / PageDown scroll back; paste uses the shared bindings.
     mov r15, [rbx + TS_term]
     mov eax, [rip + grows]
     dec eax
@@ -3048,10 +3059,7 @@ FN term_panel_key
     neg eax
     cmp r12d, KEY_PAGEDOWN
     je 4f
-    cmp r12d, KEY_INSERT
-    jne 5f
-    call cmd_term_paste
-    jmp .Ltk_yes
+    jmp 5f
 4:  mov edi, eax
     call view_scroll
     jmp .Ltk_yes

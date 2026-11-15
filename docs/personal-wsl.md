@@ -1,38 +1,50 @@
 # rhun 个人 WSL 版本
 
-项目目录中执行 ./build.sh release 编译，再执行 ./tools/run-personal.sh . 启动。
-启动器首次复制原有配置，再加入个人字体设置；配置保存到
-build/personal/config/rhun/config，会话保存到 build/personal/state/。
-可在设置中修改，或直接编辑配置。没有安装到系统目录，不影响 Windows 安装版。
+发布版正常安装后直接执行 rhun .，或解压发布包执行 bin/rhun .。
+中文输入在 Settings > Editor > Enable Chinese Pinyin input 中开启，
+也可在安装时指定 --chinese-input；无需额外启动脚本。
+源码开发时执行 ./build.sh release；准备发布运行时使用
+/usr/bin/python3 tools/package-ime.py，然后同样直接运行 build/rhun .。
+tools/run-personal.sh 仅保留给开发测试使用独立配置，不是安装版的启动要求。
 
 ## 中文输入
 
+WSLg defaults to following the Windows Chinese/English mode when private input
+is enabled. Start normally with rhun .; no environment flag is required.
+Settings > Editor > Follow Windows input mode controls this immediately.
+Only the state is shared; composition, candidates and vocabulary remain private.
+If the host state is unavailable, the independent rhun shortcut remains available.
+Disable following to use the custom rhun toggle intentionally.
+
 Wayland 后端增加 text-input-v1 的激活、光标位置、预编辑与 UTF-8 提交支持。
 实际能否直接调用 Windows 输入法还取决于 WSLg 的输入法桥接，不能只凭协议存在确认可用。
-个人启动器现在可启动**仅供 rhun 使用的项目内 Fcitx5 拼音引擎**：
+Settings 开关可直接启动**仅供 rhun 使用的应用内 Fcitx5 拼音引擎**：
 
-- **Ctrl+Alt+Space** 切换中英文，或使用命令 **Input: Toggle Chinese Pinyin**；
+- 关闭 **Follow Windows input mode** 后，**Ctrl+Alt+Space** 切换中英文，或使用命令 **Input: Toggle Chinese Pinyin**；
   输入拼音后，候选词显示在光标附近。Ctrl+Space 在未被 Windows 截获时也可用。
-- 设置页面顶部点击 **Chinese / English hotkey** 直达配置，或搜索
-  **输入法**、**快捷键**、**中英文切换**、**hotkey**、**chinese_toggle_key**；
-  修改 **Chinese / English hotkey**；
-  默认 ctrl+alt+space，支持 ctrl+shift、alt+shift、ctrl+alt 等纯修饰键组合；
-  纯修饰键在松开时切换，组合期间执行其他快捷键不会误切换。Enter 确认后立即生效并保存。
-  留空关闭应用快捷键；设置页输入无效组合时保留原值并显示英文提示。
-  对应配置为 [editor] chinese_toggle_key；Windows 原生版仍使用系统输入法切换键。
+- 设置页面顶部点击 **Keyboard Shortcuts**，或从命令面板打开同名入口。
+  搜索 **Input: Toggle Chinese Pinyin**，选中绑定后按 **F2**，直接按新组合键，Enter 保存。
+  弹窗内再按 F2 可切换为手工输入名称；Backspace 清空，保存后禁用。
+  默认 ctrl+alt+space，支持普通组合键及 shift、ctrl+shift、alt+shift、ctrl+alt。
+  纯修饰键在未参与打字或其他快捷键的情况下，松开时切换。
+  留空禁用所选绑定；Esc 取消；统一写入 [keys]，旧 [editor] chinese_toggle_key 仍兼容。
+  Windows 原生版继续使用系统输入法切换键。
 - **空格**选择首项，**数字键**或鼠标点击选词；PgUp/PgDn 翻页，Esc 取消。
 - 编辑器、终端和普通文本框使用同一输入通道；密码/token 框跳过拼音处理。
 - 预编辑不写入文件；提交后才成为可撤销的编辑。切换文件、窗格或失去焦点会取消组合。
 
-引擎和词典解压到 build/fcitx5/root，配置、词频、缓存与运行文件保存在
-build/personal/ime。使用私有 D-Bus，会话结束后退出；不安装系统软件、不改 ~/.config，
-不设置全局输入法、不替换 WSLg，不连接或接管其他应用的输入法。
+发布包包含引擎、词典、Python 与 D-Bus，普通安装会一同安装到 share/rhun/。
+配置、词频与缓存保存在 rhun 自身配置目录的 ime/ 下。使用私有 D-Bus，退出后结束；
+不安装系统软件，不设置全局输入法、不替换 WSLg，不连接或接管其他应用的输入法。
 终端子进程仍保留原桌面 D-Bus。它使用独立的 Linux 拼音词库，不共享 Windows 输入法词库。
 
-本项目内运行时已准备好；重新准备时可执行 ./tools/setup-fcitx.sh，脚本只下载并解压
-Ubuntu amd64 的软件包。若现有系统缺少 Python D-Bus/GLib 或 dbus-run-session，脚本报错停止，
-不自动安装。启动 ./tools/run-personal.sh . 后用 Ctrl+Alt+Space 开始输入。
-关闭此功能：RHUN_INLINE_IME=0 ./tools/run-personal.sh .。
+WSLg 下私有输入就绪后，现有窗口助手仅在当前 rhun 窗口获焦时转发物理按键，
+避免这些按键同时进入宿主输入法；内部中文和英文模式均使用该通道。
+不修改宿主输入法配置、语言或开关状态。关闭功能、离开窗口或退出时停止转发。
+宿主已处于中文组合状态时的候选框场景仍缺少该桌面状态下的直接验收，详见验证记录。
+
+开启或关闭 Settings 中的 Enable Chinese Pinyin input 立即生效并保存。
+WSLg 开启后默认跟随宿主中英文状态。正常安装无需下载或配置额外组件。
 
 另外保留 Windows 输入法弹窗作为备用入口：
 
@@ -134,27 +146,40 @@ Home/End 滚动，Tab 选择链接、Enter 打开。侧边预览获得焦点时�
 
 ## 验证
 
-### WSLg 主屏最大化兼容
+### WSLg native window and pointer handling
 
-本机测到最大化内容为 1920×1040，但 Windows 窗口顶边落在 Y=114，导致顶部留空、
-底部裁切。个人版本在 WSLg Wayland 下启动专属 Windows 助手，将已最大化的窗口
-校正到当前显示器的 WorkingArea；不对普通窗口应用位置或尺寸校正。
+Normal window positioning and all mouse events stay on the original
+Wayland/WSLg path. The earlier Windows SetWindowPos correction and native mouse
+relay have been removed: they could leave the Windows HWND and compositor on
+different outputs, producing an arrow cursor over the primary-screen editor.
 
-启动时用进程与时间组合标记绑定自己的窗口，握手后移除标记；允许 WSLg 在标题后
-附加发行版名。同名文件的其他窗口不会参与匹配。助手随 rhun 退出结束，不改显示器布局
-或系统配置。这是应用级兼容处理，尚不能据此确定 WSLg 内部偏移的根因。
+The process-specific Windows helper remains for private Pinyin key routing,
+read-only host input-state observation and hidden-cursor recovery after a peer
+window closes. On exactly two active monitors, it also detects an unexpected
+monitor change during normal-to-maximized transitions. After 200 ms it may send
+one native Windows monitor-move shortcut to the same foreground window, keeping
+RAIL and compositor geometry synchronized. This bounded workaround does not
+write HWND geometry or forward mouse input. It cancels on lost focus, display
+layout changes, or a user Windows-key operation; held keys/buttons and recent
+typing defer it until its one-second deadline. Already-maximized monitor moves
+remain under user control. A brief visual jump may occur; the underlying WSLg
+work-area cache is not repaired. No system configuration is changed.
+Existing windows must be restarted to load a new build.
+RHUN_WSL_WINDOW_FIX=0 disables this entire helper, including private key routing.
 
-窗口被校正后，WSLg 的表面输入坐标可能仍有偏移。因此助手仅在这个已校正的最大化
-窗口下，以 Windows 客户区坐标发送鼠标移动、左右中键和滚轮，替代重复的 Wayland
-鼠标事件；键盘继续使用原通道。使用受窗口范围限制的鼠标监听，不拦截其他应用输入。
-还原为普通窗口后恢复 Wayland 鼠标通道；输入助手不可用时保留原通道。
-
-更新后须重新启动窗口：./tools/run-personal.sh .（已有窗口仍是旧代码）。
-如需关闭该兼容处理：RHUN_WSL_WINDOW_FIX=0 ./tools/run-personal.sh .。
-
-执行 python3 tests/wsl-window.py --live 可在独立测试窗口验证主屏重复最大化、
-内容尺寸、真实鼠标操作顶部工具按钮/菜单/还原/最小化/关闭、编辑区定位和助手退出；
-需要 WSLg 与 Windows PowerShell。测试会临时移动鼠标操作它自己创建的独立窗口。
+Run python3 tests/wsl-window.py --live for repeated native maximization,
+content dimensions, toolbar/menu/editor clicks and window controls. Its setup
+uses the current monitor without forcing an HWND position.
+Run python3 tests/wsl-cursor.py --live --multi-monitor for two maximized windows
+on distinct primary/secondary displays. It compares actual Windows cursor
+bitmaps over the editor and toolbar, including focus and hover changes. It also
+repeats actual secondary-to-primary drags followed by toolbar maximization and
+checks that explicit monitor moves are not undone. Test
+windows move through the normal Windows shortcut; fewer than two active displays
+is an explicit skip. Both tests touch only their disposable windows and briefly
+move the pointer. Missing native windows or suppressed cursors are failures,
+not passing results. Current verification limits are recorded in
+ime-verification.md.
 
 ### 其他功能
 
@@ -183,6 +208,25 @@ stay alive when moved. No system settings are changed.
 
 
 ## Terminal shell startup
+
+Terminal clipboard shortcuts use **Keyboard Shortcuts**, available from the Settings
+header or command palette. Search for **Terminal: Copy Selection** or **Terminal: Paste**,
+select a binding and press F2, then press the new shortcut. Enter saves, Escape
+cancels, and Backspace clears the selected binding. F2 inside the prompt switches
+between key recording and typing a shortcut name. Changes use the original [keys]
+mechanism and apply immediately.
+
+    [keys]
+    ctrl+alt+c = terminal_copy when terminalFocus && terminalHasSelection
+    ctrl+c = none when terminalFocus && terminalHasSelection
+    ctrl+alt+v = terminal_paste when terminalFocus
+    ctrl+v = none when terminalFocus
+
+Linux/Windows default to Ctrl+C with a selection and Ctrl+V. Without a selection,
+Ctrl+C still interrupts the program. Ctrl+Shift+C/V and Shift+Insert are listed in
+the same shortcut editor. Existing [terminal] copy_key/paste_key values are still
+read for compatibility. macOS keeps Command+C/V by default. UTF-8 and multiline
+text use bracketed paste when enabled by the terminal program.
 
 The terminal preserves the user's Bash startup files. Conda hook generation and
 automatic environment activation, plus NVM's automatic Node selection, can delay

@@ -104,23 +104,20 @@ class SettingsSearch(unittest.TestCase):
     def test_no_match(self):
         self.assertEqual(self.rows('type zzzzz'), [])
 
-    def test_chinese_hotkey_is_searchable(self):
-        for query in ('hotkey', 'chinese_toggle_key', '中英文切换', '输入法', '快捷键'):
+    def test_shortcut_settings_are_not_scattered(self):
+        for query in ('hotkey', 'chinese_toggle_key', 'terminal.copy_key', 'terminal.paste_key'):
             with self.subTest(query=query):
-                self.assertEqual(self.rows('type '+query), ['editor.chinese_toggle_key'])
+                self.assertEqual(self.rows('type '+query), [])
 
-    def test_header_link_reveals_and_edits_hotkey(self):
-        out = self.run_editor(['cmd settings', 'click 750 128', 'print-settings',
-            'click 750 348', 'key ctrl+a', 'type ctrl+alt+p', 'key Return',
-            'print-keys'])
-        self.assertIn('editor.chinese_toggle_key', out)
-        self.assertNotIn('ui.theme', out)
-        self.assertIn('chinese_toggle_key = ctrl+alt+p', self.vim_mode())
+    def test_header_opens_unified_shortcuts(self):
+        out = self.run_editor(['cmd settings', 'click 680 128',
+                               'type Chinese Pinyin', 'print-palette'])
+        self.assertIn('Input: Toggle Chinese Pinyin', out)
 
     def test_header_link_works_in_narrow_window(self):
-        out = self.run_editor(['cmd settings', 'click 360 128', 'print-settings'],
-                              size='480x700')
-        self.assertEqual(out.split(), ['editor.chinese_toggle_key'])
+        out = self.run_editor(['cmd settings', 'click 320 128',
+                               'type Terminal: Paste', 'print-palette'], size='480x700')
+        self.assertIn('Terminal: Paste', out)
 
     def test_escape_clears_then_leaves(self):
         everything = self.rows()

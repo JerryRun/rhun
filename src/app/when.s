@@ -1738,6 +1738,9 @@ ck_scm_focus:
     mov edi, FOCUS_SCM
     call ck_focus_is
     jmp ck_bool
+ck_terminal_selection:
+    call term_has_selection
+    jmp ck_bool
 ck_settings_focus:
     mov edi, FOCUS_SETTINGS
     call ck_focus_is

@@ -166,6 +166,23 @@ class Keys(contribhost.Contrib):
         self.assertIn(CTRL + 'K ' + CTRL + 'T  Select Color Theme', '\n'.join(out))
         self.assertIn('  GitHub Dark', out)
 
+    def test_unified_editor_preserves_extension_arguments_and_context(self):
+        keys = 'ctrl+alt+u = ping hello there when editorFocus\n'
+        out = self.run_editor(exts=self.exts(keys), drop_waits=True, actions=[
+            'cmd keyboard_shortcuts', 'type Ping', 'key F2', 'key F2',
+            'type ctrl+alt+y', 'key Return', 'key Escape',
+            'key ctrl+alt+y', 'wait-ext demo running', 'wait 300', 'print-keys'])
+        self.assertEqual(self.runs(), [('0 run demo.ping 1 key 11', 'body=hello there')])
+        self.assertTrue(any(line.startswith('ctrl+alt+y ') and 'source=user' in line
+                            and 'args=hello there when=editorFocus' in line for line in out), out)
+
+    def test_unified_editor_accepts_two_stroke_chords(self):
+        out = self.run_editor(drop_waits=True, actions=[
+            'cmd keyboard_shortcuts', 'type color theme', 'key F2', 'key F2',
+            'type ctrl+alt+k ctrl+t', 'key Return', 'key Escape',
+            'key ctrl+alt+k', 'key ctrl+t', 'print-palette'])
+        self.assertIn('  GitHub Dark', out)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -15,8 +15,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class Downloads(unittest.TestCase):
-    def check_download(self, downloader, transient, quiet=False):
-        executable = shutil.which(downloader)
+    def check_download(self, downloader, transient, quiet=False, busybox=False):
+        executable = shutil.which('busybox' if busybox else downloader)
         if not executable:
             self.skipTest(f"{downloader} is not installed")
         requests = []
@@ -51,8 +51,8 @@ class Downloads(unittest.TestCase):
                 tools = home / "bin"
                 tools.mkdir()
                 # Make wget selectable even on systems with curl in /usr/bin.
-                for name in (downloader, "uname", "sysctl", "mktemp", "rm", "tr", "grep", "cat", "sed"):
-                    path = shutil.which(name)
+                for name in (downloader, "uname", "sysctl", "mktemp", "rm", "tr", "grep", "cat", "sed", "sleep", "timeout"):
+                    path = executable if name == downloader else shutil.which(name)
                     if path:
                         (tools / name).symlink_to(path)
                 env = dict(os.environ, HOME=str(home), PATH=str(tools),
@@ -113,6 +113,18 @@ class Downloads(unittest.TestCase):
 
     def test_wget_quiet_update_reports_404(self):
         self.check_download("wget", False, quiet=True)
+
+    def test_busybox_wget_recovers_from_503(self):
+        self.check_download('wget', True, busybox=True)
+
+    def test_busybox_wget_reports_404(self):
+        self.check_download('wget', False, busybox=True)
+
+    def test_busybox_wget_quiet_update_recovers_from_503(self):
+        self.check_download('wget', True, quiet=True, busybox=True)
+
+    def test_busybox_wget_quiet_update_reports_404(self):
+        self.check_download('wget', False, quiet=True, busybox=True)
 
 
 if __name__ == "__main__":

@@ -1997,6 +1997,7 @@ ENDSTRUCT REG_SIZE
 .equ PROMPT_EXT_LINK, 21        # Link a Folder: the folder, linked
 .equ PROMPT_EXT_ARCHIVE, 22     # Install from Archive: the .tar.gz
 .equ PROMPT_WS_SAVE, 100        # resources group (block 100-103): Save Workspace As's file (workspace.s)
+.equ PROMPT_KEY_BINDING, 104    # shared Keyboard Shortcuts editor
 
 # vim modes (g_vim_mode)
 .equ VM_NORMAL, 0
@@ -2378,6 +2379,7 @@ ENDSTRUCT CRF_SIZE
     CTXKEY CTX_EXPLORER_FOCUS, "explorerFocus", ck_explorer_focus
     CTXKEY CTX_AGENTS_FOCUS, "agentsFocus", ck_agents_focus
     CTXKEY CTX_TERMINAL_FOCUS, "terminalFocus", ck_terminal_focus
+    CTXKEY CTX_TERMINAL_SELECTION, "terminalHasSelection", ck_terminal_selection
     CTXKEY CTX_SCM_INPUT_FOCUS, "scmInputFocus", ck_scm_focus
     CTXKEY CTX_SETTINGS_FOCUS, "settingsFocus", ck_settings_focus
     CTXKEY CTX_FIND_VISIBLE, "findVisible", ck_find_visible

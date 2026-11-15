@@ -30,7 +30,7 @@ class FcitxInput(unittest.TestCase):
                 with config.open('a') as stream:
                     stream.write('[editor]\nchinese_toggle_key=' + shortcut + '\n')
             script = work/'actions'
-            script.write_text('\n'.join(['cmd new_file', 'wait 1800', *actions,
+            script.write_text('\n'.join(['cmd new_file', 'wait-input', *actions,
                 'wait 200', 'quit', '']))
             env = dict(os.environ, HOME=tmp, XDG_CONFIG_HOME=str(work/'config'),
                        XDG_STATE_HOME=str(work/'state'))
@@ -99,17 +99,14 @@ class FcitxInput(unittest.TestCase):
         self.assertNotIn('ctrl+alt+space toggle_chinese', out)
         self.assertIn('中文English', out)
 
-    def test_settings_edit_rebinds_immediately(self):
-        out = self.run_editor(['cmd settings', 'type chinese_toggle_key',
-            'wait 200', 'print-settings', 'click 750 348', 'wait 100', 'key ctrl+a',
-            'wait 100', 'type ctrl+alt+p', 'wait 200',
-            'shot /tmp/rhun-shortcut-edited.ppm', 'key Return', 'wait 100',
-            'print-keys', 'cmd close_tab', 'key ctrl+alt+p',
+    def test_unified_edit_rebinds_immediately(self):
+        out = self.run_editor(['cmd keyboard_shortcuts', 'type Chinese Pinyin',
+            'wait 150', 'key F2', 'key F2', 'type ctrl+alt+p', 'key Return', 'wait 100',
+            'print-keys', 'key Escape', 'key ctrl+alt+p',
             'wait 100', 'type zhongwen', 'wait 200', 'key space', 'wait 150',
             'print-doc'])
-        self.assertIn('editor.chinese_toggle_key', out)
-        self.assertIn('ctrl+alt+p toggle_chinese source=builtin', out)
-        self.assertNotIn('ctrl+alt+space toggle_chinese', out)
+        self.assertIn('ctrl+alt+p toggle_chinese source=user', out)
+        self.assertIn('ctrl+alt+space toggle_chinese source=builtin rank=2 state=shadowed:user', out)
         self.assertIn('中文', out)
 
     def test_click_selection(self):

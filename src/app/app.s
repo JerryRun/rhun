@@ -2165,6 +2165,7 @@ FN app_reload_config
     call config_load
     xor edi, edi
     call theme_settings_init
+    call fcitx_apply
     # follow_system turned off in the file: theme becomes the theme shown, as in Settings, unless
     # theme was changed too
     test ebx, ebx

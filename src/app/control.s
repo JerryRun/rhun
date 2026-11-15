@@ -2,7 +2,7 @@
 #   key ctrl+s | type text | click x y [right|middle|shift|ctrl] | tap x y | move x y | down | up | scroll dy [ctrl]
 #   open path | cmd name | shot file.ppm | wait ms | resize w h | print-doc | print-state | echo text | quit
 #   wait-git | print-git | print-gitlog | print-scm | wait-update | print-update | print-project | print-palette
-#   print-menu | focus out|in | print-preedit
+#   print-menu | focus out|in | print-preedit | print-input | wait-input
 #   multi-cursor: click x y alt|shift+alt (print-selections and drag are in wsctl.s)
 .include "rhun.inc"
 
@@ -675,6 +675,28 @@ c_wait:
     pop r14
     pop r13
     xor eax, eax
+    ret
+
+# wait-input: wait for the private input helper to become ready (at most 15 s).
+c_wait_input:
+    push r13
+    call time_ms
+    lea r13, [rax + 15000]
+1:  call fcitx_active
+    test eax, eax
+    jnz 2f
+    call time_ms
+    cmp rax, r13
+    jae 3f
+    mov edi, 20
+    call loop_poll
+    call app_tick
+    jmp 1b
+2:  xor eax, eax
+    pop r13
+    ret
+3:  mov eax, -1
+    pop r13
     ret
 
 # wait-git: until git has answered (at most 10 s)
@@ -1784,6 +1806,26 @@ c_print_doc:
     xor eax, eax
     ret
 
+# print-input: whether the private input helper is ready (0 or 1).
+c_print_input:
+    sub rsp, 8
+    call fcitx_active
+    mov esi, eax
+    lea rdi, [rip + out]
+    call sb_push_u64
+    lea rdi, [rip + out]
+    mov esi, 10
+    call sb_push_byte
+    add rsp, 8
+    xor eax, eax
+    ret
+
+c_print_input_route:
+    lea rdi, [rip + out]
+    call wsl_window_input_dump
+    xor eax, eax
+    ret
+
 # print-preedit: the composition an input method shows at the editor's caret (ime.s), one line
 c_print_preedit:
     push rbx
@@ -2312,6 +2354,9 @@ sev_words: .quad .Lsw_error, .Lsw_warning, .Lsw_info, .Lsw_hint
 .Lc_echo: .asciz "echo"
 .Lc_print_doc: .asciz "print-doc"
 .Lc_print_state: .asciz "print-state"
+.Lc_print_input: .asciz "print-input"
+.Lc_print_input_route: .asciz "print-input-route"
+.Lc_wait_input: .asciz "wait-input"
 .Lc_print_preedit: .asciz "print-preedit"
 .Lc_print_syntax: .asciz "print-syntax"
 .Lc_print_agents: .asciz "print-agents"
@@ -2442,6 +2487,9 @@ ctl_tables:
     .quad submitext_ctl         # Submit to Index (submitext.s)
     .quad 0
 ctl_table:
+    .quad .Lc_wait_input, c_wait_input
+    .quad .Lc_print_input, c_print_input
+    .quad .Lc_print_input_route, c_print_input_route
     .quad .Lc_key_up, c_key_up, .Lc_key, c_key, .Lc_modifiers, c_modifiers, .Lc_type, c_type, .Lc_move, c_move, .Lc_click, c_click, .Lc_tap, c_tap
     .quad .Lc_down, c_down, .Lc_up, c_up, .Lc_updown, c_updown, .Lc_scroll, c_scroll, .Lc_open, c_open
     .quad .Lc_cmd, c_cmd, .Lc_shot, c_shot, .Lc_wait, c_wait, .Lc_resize, c_resize

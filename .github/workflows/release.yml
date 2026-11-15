@@ -69,6 +69,10 @@ jobs:
           python3 tests/linux-launch.py --wayland
       - name: Build
         run: RHUN_DIST=1 ./build.sh release
+      - name: Bundle app-private Chinese input
+        run: |
+          /usr/bin/python3 tools/package-ime.py
+          /usr/bin/python3 tests/installed-ime.py
       - name: Pack
         run: |
           v=$(cat VERSION)
@@ -81,9 +85,8 @@ jobs:
           cp assets/icons/rhun.svg "$r/share/icons/hicolor/scalable/apps/"
           cp assets/icons/rhun-256.png "$r/share/icons/hicolor/256x256/apps/rhun.png"
           cp assets/icons/rhun-512.png "$r/share/icons/hicolor/512x512/apps/rhun.png"
-          mkdir -p "$r/tools" "$r/build"
-          cp tools/run-personal.sh tools/run-fcitx.sh tools/setup-fcitx.sh "$r/tools/"
-          ln -s ../bin/rhun "$r/build/rhun"
+          mkdir -p "$r/share/rhun"
+          cp -R build/ime-runtime "$r/share/rhun/ime"
           cp docs/linux-release.md "$r/README-WSL.md"
           cp LICENSE "$r/"
           cp assets/licenses/LICENSE-Unicode.txt "$r/"

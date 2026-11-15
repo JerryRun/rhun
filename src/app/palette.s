@@ -94,6 +94,10 @@ gload_state: .long 0            # GL_*
 gload_drawn: .long 0            # the palette has been on screen since find in files opened
 grep_case: .long 0
 pal_mods: .long 0               # modifiers of the key that accepts
+pal_binding_text: .long 0       # F2 switches recording / manual name entry
+pal_binding_count: .long 0
+pal_binding_mods: .long 0       # modifier-only gesture, captured on release
+pal_binding_buf: .zero 128
 pal_nohl: .long 0               # the row being drawn shows no matched characters
 brw_kind: .long 0               # the path browser picks: 0 a file, 1 a folder
 brw_dir: .zero 4096             # the folder it lists
@@ -300,11 +304,22 @@ pal_save_cancel:
 # Password/token prompts must never send keystrokes to the Pinyin engine.
 FN palette_is_secret
     xor eax, eax
+    # Shortcut names and editing keys belong directly to the shared key UI.
+    # Deferring F2 through the IME can send following text to the previous field.
+    cmp dword ptr [rip + pal_mode], PM_KEYS
+    je .Lpal_raw_keys
+    cmp dword ptr [rip + pal_mode], PM_PROMPT
+    jne 1f
+    cmp dword ptr [rip + pal_prompt], PROMPT_KEY_BINDING
+    je .Lpal_raw_keys
     cmp dword ptr [rip + pal_prompt], PROMPT_REMOTE_SECRET
     jne 1f
     cmp dword ptr [rip + pal_mode], PM_PROMPT
     sete al
 1:  ret
+.Lpal_raw_keys:
+    mov eax, 1
+    ret
 
 # pal_remote_cancel(): remote hosts: a remote list or question closed without an answer
 pal_remote_cancel:
@@ -361,7 +376,7 @@ FN cmd_quick_open
 FN cmd_command_palette
     mov edi, PM_COMMANDS
     jmp palette_open
-# Keyboard Shortcuts: every binding with its source and clause; Enter runs its command
+# Keyboard Shortcuts: bindings with source/context; Enter runs, F2 edits
 FN cmd_keyboard_shortcuts
     mov edi, PM_KEYS
     jmp palette_open
@@ -1588,6 +1603,9 @@ FN palette_ext_prompt_open
     call palette_open
     mov [rip + pal_label], rbx
     mov [rip + pal_prompt], r12d
+    mov dword ptr [rip + pal_binding_text], 0
+    mov dword ptr [rip + pal_binding_count], 0
+    mov dword ptr [rip + pal_binding_mods], 0
     mov dword ptr [rip + g_focus], FOCUS_PROMPT
     lea rdi, [rip + pal_tf]
     mov rsi, r13
@@ -2885,6 +2903,60 @@ FN palette_key
     mov r13d, esi
     mov r14d, edx
     mov [rip + pal_mods], edx
+    cmp dword ptr [rip + pal_mode], PM_KEYS
+    jne .Lpk_binding_done
+    cmp r12d, 0xffbf             # F2
+    jne .Lpk_binding_done
+    call selected_item
+    test rax, rax
+    jz .Lpk_yes
+    mov rdi, [rax + IT_data]
+    call keys_binding_edit
+    lea rdi, [rip + pal_tf]
+    call tf_select_all
+    jmp .Lpk_yes
+.Lpk_binding_done:
+    cmp dword ptr [rip + pal_mode], PM_PROMPT
+    jne .Lpk_record_done
+    cmp dword ptr [rip + pal_prompt], PROMPT_KEY_BINDING
+    jne .Lpk_record_done
+    cmp r12d, 0xffbf             # F2: recording / manual entry
+    jne .Lpk_record_mode
+    xor dword ptr [rip + pal_binding_text], 1
+    mov dword ptr [rip + pal_binding_mods], 0
+    lea rdi, [rip + .Lbinding_record_hint]
+    cmp dword ptr [rip + pal_binding_text], 0
+    je .Lpk_record_hint
+    lea rdi, [rip + .Lbinding_text_hint]
+.Lpk_record_hint:
+    mov [rip + pal_label], rdi
+    jmp .Lpk_yes
+.Lpk_record_mode:
+    cmp dword ptr [rip + pal_binding_text], 0
+    jne .Lpk_record_done
+    cmp r12d, KEY_ESCAPE
+    je .Lpk_record_done
+    cmp r12d, KEY_RETURN
+    je .Lpk_record_done
+    cmp r12d, KEY_BACKSPACE
+    jne .Lpk_record_key
+    lea rdi, [rip + pal_tf]
+    call tf_clear
+    mov dword ptr [rip + pal_binding_count], 0
+    mov dword ptr [rip + pal_binding_mods], 0
+    jmp .Lpk_yes
+.Lpk_record_key:
+    cmp r12d, KEY_SHIFT_L
+    jb .Lpk_record_stroke
+    cmp r12d, KEY_SUPER_R
+    jbe .Lpk_yes
+.Lpk_record_stroke:
+    mov dword ptr [rip + pal_binding_mods], -1 # ignore releases belonging to this key
+    mov edi, r12d
+    mov esi, r14d
+    call palette_binding_stroke
+    jmp .Lpk_yes
+.Lpk_record_done:
     cmp r12d, KEY_ESCAPE
     jne 1f
     call palette_close
@@ -3000,6 +3072,79 @@ FN palette_key
     mov eax, 1
     EPILOGUE
 
+# Capture a physical stroke using the same parser and configuration as [keys].
+palette_binding_stroke:
+    PROLOGUE
+    mov edx, edi
+    lea rdi, [rip + pal_binding_buf]
+    call keys_format_stroke
+    lea rbx, [rip + pal_binding_buf]
+    sub rax, rbx
+    mov r12, rax
+    cmp dword ptr [rip + pal_binding_count], 1
+    jne 1f
+    lea rdi, [rip + pal_tf]
+    call tf_text
+    mov rdi, rax
+    mov rsi, rdx
+    call parse_chinese_toggle
+    cmp eax, KEY_IME_MODIFIERS
+    je 1f                      # modifier-only gestures cannot prefix a chord
+    test edx, MOD_CTRL | MOD_ALT | MOD_SUPER
+    jz 1f
+    lea rdi, [rip + pal_tf]
+    lea rsi, [rip + .Lbinding_space]
+    mov edx, 1
+    call tf_insert
+    lea rdi, [rip + pal_tf]
+    mov rsi, rbx
+    mov rdx, r12
+    call tf_insert
+    mov dword ptr [rip + pal_binding_count], 2
+    jmp 2f
+1:  lea rdi, [rip + pal_tf]
+    mov rsi, rbx
+    mov rdx, r12
+    call tf_set
+    mov dword ptr [rip + pal_binding_count], 1
+2:  mov dword ptr [rip + g_dirty], 1
+    EPILOGUE
+
+# Return 1 while recording, so releasing Shift/Ctrl cannot execute a binding.
+FN palette_binding_modifiers
+    xor eax, eax
+    cmp dword ptr [rip + pal_mode], PM_PROMPT
+    jne 9f
+    cmp dword ptr [rip + pal_prompt], PROMPT_KEY_BINDING
+    jne 9f
+    cmp dword ptr [rip + pal_binding_text], 0
+    jne 9f
+    PROLOGUE
+    mov ebx, edi
+    mov esi, [rip + pal_binding_mods]
+    mov [rip + pal_binding_mods], edi
+    cmp esi, -1
+    jne 1f
+    test ebx, ebx
+    jz 8f
+    mov dword ptr [rip + pal_binding_mods], -1
+    jmp 8f
+1:
+    test esi, esi
+    jz 8f
+    mov eax, esi
+    or eax, ebx
+    cmp eax, esi
+    jne 8f
+    cmp ebx, esi
+    je 8f
+    mov dword ptr [rip + pal_binding_mods], 0
+    mov edi, KEY_IME_MODIFIERS
+    call palette_binding_stroke
+8:  mov eax, 1
+    EPILOGUE
+9:  ret
+
 # grep_to_results(): Find in Files' results (as filtered now) become a Results set, the palette
 # closes (language features, results.s)
 grep_to_results:
@@ -3109,6 +3254,12 @@ palette_accept:
     je 11f
     cmp ebx, PM_KEYS
     jne 2f
+    mov rbx, [r12 + IT_data]
+    mov dword ptr [rip + pal_mode], PM_NONE
+    call pal_return_focus
+    mov rdi, rbx
+    call keys_binding_run
+    jmp .Lpa_ret
 11: mov dword ptr [rip + pal_mode], PM_NONE
     call pal_return_focus
     mov rax, [r12 + IT_data]
@@ -3276,6 +3427,19 @@ palette_accept:
     mov dword ptr [rip + g_reveal], 0
     jmp .Lpa_close
 .Lpa_prompt:
+    cmp dword ptr [rip + pal_prompt], PROMPT_KEY_BINDING
+    jne .Lpa_not_binding
+    lea rdi, [rip + pal_tf]
+    call tf_text
+    mov rdi, rax
+    mov rsi, rdx
+    call keys_binding_save
+    test eax, eax
+    jz .Lpa_ret
+    call palette_close
+    call cmd_keyboard_shortcuts
+    jmp .Lpa_ret
+.Lpa_not_binding:
     cmp dword ptr [rip + pal_prompt], PROMPT_WS_SAVE  # resources group: Save Workspace As
     je 65f
     cmp dword ptr [rip + pal_prompt], 101  # Save workspace first, then Add Folder
@@ -4255,7 +4419,10 @@ hint_text:
 .Lfailed: .asciz "That didn't work"
 .Lph_files: .asciz "Search files by name  (> commands, : line)"
 .Lph_cmds: .asciz "Type a command"
-.Lph_keys: .asciz "Search keyboard shortcuts"
+.Lph_keys: .asciz "Search shortcuts (F2: edit, Enter: run)"
+.Lbinding_record_hint: .asciz "Press shortcut; Enter: save, Backspace: clear, F2: type name"
+.Lbinding_text_hint: .asciz "Type shortcut name; Enter: save, F2: record keys"
+.Lbinding_space: .asciz " "
 .Lph_icons: .asciz "Select a file icon theme"
 .Lph_themes: .asciz "Select a color theme"
 .Lph_dark: .asciz "Select a theme for dark mode"

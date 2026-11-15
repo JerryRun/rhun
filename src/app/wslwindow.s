@@ -1,4 +1,4 @@
-# WSLg host work-area workaround (RHUN_WSL_WINDOW_FIX=0 disables).
+# WSLg private-input and cursor-lifetime helper (RHUN_WSL_WINDOW_FIX=0 disables).
 # One helper owns exactly this window; stdin EOF ends it when rhun exits.
 .include "rhun.inc"
 .bss
@@ -9,14 +9,14 @@ ww_title: .zero SB_SIZE
 ww_display: .zero SB_SIZE
 ww_pid: .long 0
 ww_tagged: .long 0
-.globl wsl_window_native
-wsl_window_native: .long 0
+.globl wsl_window_keyboard
+wsl_window_keyboard: .long 0
+ww_keys: .quad 0
 ww_used: .long 0
-ww_width: .long 0
-ww_height: .long 0
 ww_packet: .zero 20
 .p2align 3
 ww_until: .quad 0
+ww_key_until: .quad 0
 .data
 ww_read: .long -1
 ww_write: .long -1
@@ -31,6 +31,32 @@ ww_command: .asciz "-Command"
 ww_tag_start: .asciz " [rhun-wsl-"
 ww_script_start: .asciz "$rhunWindowTag='"
 ww_script_end: .asciz "';"
+.text
+
+# Read-only diagnostics for native GUI regression tests.
+FN wsl_window_input_dump
+    PROLOGUE
+    mov rbx, rdi
+    lea rsi, [rip + ww_route]
+    call sb_push_cstr
+    mov rdi, rbx
+    mov esi, [rip + wsl_window_keyboard]
+    call sb_push_u64
+    mov rdi, rbx
+    lea rsi, [rip + ww_keycount]
+    call sb_push_cstr
+    mov rdi, rbx
+    mov rsi, [rip + ww_keys]
+    call sb_push_u64
+    mov rdi, rbx
+    call fcitx_host_dump
+    mov rdi, rbx
+    mov esi, 10
+    call sb_push_byte
+    EPILOGUE
+.section .rodata
+ww_route: .asciz "host_relay="
+ww_keycount: .asciz " keys="
 .text
 
 FN wsl_window_start
@@ -179,6 +205,24 @@ FN wsl_window_tick
     jne 1f
     ret
 1:  PROLOGUE 16
+    cmp dword ptr [rip + ww_tagged], 0
+    jne .Lww_read_start
+    call time_ms
+    cmp rax, [rip + ww_key_until]
+    jb .Lww_read_start
+    add rax, 250
+    mov [rip + ww_key_until], rax
+    call fcitx_active
+    cmp dword ptr [rip + cfg_chinese_follow_host], 0
+    je .Lww_heartbeat
+    or eax, 2
+.Lww_heartbeat:
+    mov [rsp], al
+    mov edi, [rip + ww_write]
+    mov rsi, rsp
+    mov edx, 1
+    SYS SYS_write
+.Lww_read_start:
     mov r12d, 128
 .Lww_read_next:
     mov edi, [rip + ww_read]
@@ -235,64 +279,41 @@ FN wsl_window_tick
     cmp dword ptr [rip + ww_used], 20
     jne .Lww_tick_done
     mov dword ptr [rip + ww_used], 0
-    cmp dword ptr [rip + ww_packet], 0
-    jne .Lww_pointer
-    mov eax, [rip + ww_packet + 4]
-    mov [rip + ww_width], eax
-    mov eax, [rip + ww_packet + 8]
-    mov [rip + ww_height], eax
+    cmp dword ptr [rip + ww_packet], 8
+    jne .Lww_not_cursor_recovery
+    call wl_cursor_refresh
+    mov dword ptr [rip + g_dirty], 1
+    jmp .Lww_continue
+.Lww_not_cursor_recovery:
+    cmp dword ptr [rip + ww_packet], 7
+    jne .Lww_not_ime_state
+    mov edi, [rip + ww_packet + 12]
+    call fcitx_follow_host
+    jmp .Lww_continue
+.Lww_not_ime_state:
+    cmp dword ptr [rip + ww_packet], 6
+    jne .Lww_keyboard_event
     mov eax, [rip + ww_packet + 12]
-    mov [rip + wsl_window_native], eax
+    mov [rip + wsl_window_keyboard], eax
+    call wl_host_input_reset
     jmp .Lww_continue
-.Lww_pointer:
-    cmp dword ptr [rip + wsl_window_native], 0
-    je .Lww_continue
-    test dword ptr [rip + g_win_states], 1
-    jz .Lww_continue
-    cmp dword ptr [rip + ww_packet], 4
-    jne 3f
-    call app_on_pointer_leave
-    jmp .Lww_continue
-3:  mov ecx, [rip + ww_width]
-    test ecx, ecx
-    jle .Lww_continue
-    mov eax, [rip + ww_packet + 4]
-    imul eax, [rip + g_cv + CV_w]
-    cdq
-    idiv ecx
-    mov r13d, eax
-    mov ecx, [rip + ww_height]
-    test ecx, ecx
-    jle .Lww_continue
-    mov eax, [rip + ww_packet + 8]
-    imul eax, [rip + g_cv + CV_h]
-    cdq
-    idiv ecx
-    mov edi, r13d
-    mov esi, eax
-    call app_on_motion
-    cmp dword ptr [rip + ww_packet], 2
-    jne 4f
-    mov edi, [rip + ww_packet + 12]
-    mov esi, [rip + ww_packet + 16]
-    mov edx, [rip + g_mods]
-    call app_on_button
-    jmp .Lww_continue
-4:  cmp dword ptr [rip + ww_packet], 3
+.Lww_keyboard_event:
+    cmp dword ptr [rip + ww_packet], 5
     jne .Lww_continue
-    mov edi, [rip + ww_packet + 12]
-    mov esi, [rip + ww_packet + 16]
-    # Match Wayland's wheel scaling (120 protocol units -> 600 pixels / notch).
-    imul edi, edi, 5
-    imul esi, esi, 5
-    mov edx, [rip + g_mods]
-    call app_on_scroll
+    inc qword ptr [rip + ww_keys]
+    mov edi, [rip + ww_packet + 4]
+    mov esi, [rip + ww_packet + 8]
+    mov edx, [rip + ww_packet + 12]
+    call wl_host_key
+    jmp .Lww_continue
 .Lww_continue:
     dec r12d
     jnz .Lww_read_next
     jmp .Lww_tick_done
 .Lww_disconnect:
-    mov dword ptr [rip + wsl_window_native], 0
+    mov edi, -1
+    call fcitx_follow_host
+    mov dword ptr [rip + wsl_window_keyboard], 0
     mov edi, [rip + ww_read]
     SYS SYS_close
     mov dword ptr [rip + ww_read], -1

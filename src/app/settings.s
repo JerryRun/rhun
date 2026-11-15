@@ -5,7 +5,7 @@
 .equ ID_SET_OPENFILE, 0x4f00
 .equ ID_SET_SCROLL, 0x4f01
 .equ ID_SET_SEARCH, 0x4f06        # 0x4f02-0x4f05: the links under the title
-.equ ID_SET_CHINESE, 0x4f07       # direct access to the private IME shortcut
+.equ ID_SET_KEYS, 0x4f07       # shared Keyboard Shortcuts entry point
 
 .data
 .p2align 3
@@ -127,7 +127,7 @@ commit_edit:
     mov r13, rdx
     lea rcx, [rip + cfg_chinese_toggle_key]
     cmp [rbx + SET_ptr], rcx
-    jne .Ledit_string_valid
+    jne .Ledit_terminal_key
     test r13, r13
     jz .Ledit_string_valid
     mov rdi, r12
@@ -136,6 +136,29 @@ commit_edit:
     test eax, eax
     jnz .Ledit_string_valid
     lea rdi, [rip + .Linvalid_chinese_hotkey]
+    call app_toast
+    jmp 9f
+.Ledit_terminal_key:
+    lea rcx, [rip + cfg_term_copy_key]
+    cmp [rbx + SET_ptr], rcx
+    je .Ledit_clip_key
+    lea rcx, [rip + cfg_term_paste_key]
+    cmp [rbx + SET_ptr], rcx
+    jne .Ledit_string_valid
+.Ledit_clip_key:
+    test r13, r13
+    jz .Ledit_string_valid
+    mov rdi, r12
+    mov rsi, r13
+    call parse_combo
+    test eax, eax
+    jz .Ledit_clip_invalid
+    test edx, MOD_SUPER
+    jnz .Ledit_clip_invalid
+    test edx, MOD_CTRL | MOD_ALT
+    jnz .Ledit_string_valid
+.Ledit_clip_invalid:
+    lea rdi, [rip + .Linvalid_terminal_hotkey]
     call app_toast
     jmp 9f
 .Ledit_string_valid:
@@ -156,6 +179,12 @@ FN setting_applied
     mov dword ptr [rip + g_settings_changed], 1
     mov dword ptr [rip + g_dirty], 1
     mov rax, [rbx + SET_ptr]
+    lea rcx, [rip + cfg_chinese_input]
+    cmp rax, rcx
+    jne .Lset_not_chinese_input
+    call fcitx_apply
+    jmp 9f
+.Lset_not_chinese_input:
     lea rcx, [rip + cfg_chinese_toggle_key]
     cmp rax, rcx
     jne 0f
@@ -223,6 +252,16 @@ FN setting_applied
 # and light mode's themes with it
 setting_shown:
     mov rax, [rdi + SET_ptr]
+    # Legacy config names remain readable; shortcuts have one shared editor.
+    lea rdx, [rip + cfg_chinese_toggle_key]
+    cmp rax, rdx
+    je .Lss_legacy_key
+    lea rdx, [rip + cfg_term_copy_key]
+    cmp rax, rdx
+    je .Lss_legacy_key
+    lea rdx, [rip + cfg_term_paste_key]
+    cmp rax, rdx
+    je .Lss_legacy_key
     mov ecx, [rip + cfg_follow_system]
     lea rdx, [rip + cfg_theme]
     cmp rax, rdx
@@ -239,6 +278,9 @@ setting_shown:
 1:  xor eax, eax
     test ecx, ecx
     sete al
+    ret
+.Lss_legacy_key:
+    xor eax, eax
     ret
 
 # setting_match(SET*) -> 1 when each word of the search text starts a word of the row's title, its
@@ -296,15 +338,6 @@ setting_match:
     call .Lsm_in
     test rax, rax
     jns .Lsm_word
-    # Search aliases do not belong in the visible English description.
-    lea rax, [rip + cfg_chinese_toggle_key]
-    cmp [rbx + SET_ptr], rax
-    jne 4f
-    lea rdi, [rip + .Lchinese_aliases]
-    call .Lsm_in
-    test rax, rax
-    jns .Lsm_word
-4:
     lea rdi, [rsp]
     mov rsi, [rsp + 128]
     call .Lsm_at
@@ -621,7 +654,7 @@ FN settings_draw
     lea r8, [rip + .Ltitle]
     COLOR r9d, T_FG
     call ui_text_c
-    # Keep the input hotkey discoverable without scrolling through Appearance settings.
+    # The original shortcut list is the single entry point for key bindings.
     mov edi, 220
     call sc
     mov ecx, [rsp + 16]
@@ -632,21 +665,16 @@ FN settings_draw
     mov esi, [rsp + 20]
     add esi, [rsp + 16]
     sub esi, ecx
-    mov edi, ID_SET_CHINESE
+    mov edi, ID_SET_KEYS
     mov edx, r12d
-    lea r8, [rip + .Lchinese_hotkey]
+    lea r8, [rip + .Lkeyboard_shortcuts]
     call settings_link
     test eax, UB_CLICK
     jz 101f
     call commit_edit
-    lea rdi, [rip + set_search]
-    lea rsi, [rip + .Lchinese_query]
-    mov edx, 18
-    call tf_set
-    mov dword ptr [rip + set_find], 1
-    mov dword ptr [rip + g_focus], FOCUS_SETTINGS
-    mov dword ptr [rip + set_scroll], 0
-    mov dword ptr [rip + g_dirty], 1
+    mov dword ptr [rip + g_released], 0  # opening a palette must not dismiss it with this click
+    call cmd_keyboard_shortcuts
+    jmp .Lsd_end
 101:
     add r12d, [rip + g_mt + 4*MI_40]
     # config file line (cut before the button) + button
@@ -1634,10 +1662,9 @@ FN ui_text_v_fit
 .section .rodata
 .Ltitle: .asciz "Settings"
 .Lsearch: .asciz "Search settings"
-.Linvalid_chinese_hotkey: .asciz "Invalid shortcut. Use Ctrl+Shift or Ctrl+Alt+Space."
-.Lchinese_hotkey: .asciz "Chinese / English hotkey"
-.Lchinese_query: .asciz "chinese_toggle_key"
-.Lchinese_aliases: .asciz "中文 中英文切换 输入法 快捷键 热键"
+.Linvalid_chinese_hotkey: .asciz "Invalid shortcut. Use a key combination or Shift."
+.Linvalid_terminal_hotkey: .asciz "Invalid terminal shortcut. Use a key with Ctrl or Alt."
+.Lkeyboard_shortcuts: .asciz "Keyboard Shortcuts"
 .Lno_match: .asciz "No settings match."
 .Lopen_file: .asciz "Open settings file"
 .Lbuiltin: .asciz "built-in"

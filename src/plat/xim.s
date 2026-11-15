@@ -49,6 +49,7 @@ at_style: .long 0               # input context attribute ids from XIM_OPEN_REPL
 at_client: .long 0
 at_focus: .long 0
 focused: .long 0
+native_focused: .long 0
 pq_seq: .zero 4 * PQ_MAX        # GetProperty sequence numbers and message lengths, in order
 pq_len: .zero 4 * PQ_MAX
 pq_head: .long 0
@@ -400,12 +401,23 @@ FN xim_key
 
 # xim_focus(in): the input context follows the window's focus
 FN xim_focus
-    PROLOGUE
     mov [rip + focused], edi
+    jmp xim_sync
+
+FN xim_sync
+    PROLOGUE
     cmp dword ptr [rip + state], XS_READY
     jne 9f
+    call fcitx_owns_input
+    test eax, eax
+    setz al
+    movzx eax, al
+    and eax, [rip + focused]
+    cmp eax, [rip + native_focused]
+    je 9f
+    mov [rip + native_focused], eax
     mov ebx, XIM_SET_IC_FOCUS
-    test edi, edi
+    test eax, eax
     jnz 1f
     mov ebx, XIM_UNSET_IC_FOCUS
 1:  mov edi, ebx
@@ -598,6 +610,7 @@ message:
     movzx eax, word ptr [rbx + 6]
     mov [rip + icid], eax
     mov dword ptr [rip + state], XS_READY
+    mov dword ptr [rip + native_focused], -1
     cmp dword ptr [rip + focused], 0
     je 9f
     mov edi, 1
@@ -629,6 +642,13 @@ message:
     jz 9f
     jmp .Lxm_sync
 .Lxm_commit:
+    call fcitx_owns_input
+    test eax, eax
+    jz .Lxm_native_commit
+    test word ptr [rbx + 8], 1
+    jnz .Lxm_sync
+    jmp 9f
+.Lxm_native_commit:
     # flag: 1 synchronous, 2 characters, 4 keysym (before the characters)
     movzx eax, word ptr [rbx + 8]
     mov [rsp], eax
@@ -681,12 +701,18 @@ message:
     call send
     jmp 9f
 .Lxm_pe_done:
+    call fcitx_owns_input
+    test eax, eax
+    jnz 9f
     mov dword ptr [rip + pe_len], 0
     xor edi, edi
     xor esi, esi
     call ime_preedit
     jmp 9f
 .Lxm_pe_draw:
+    call fcitx_owns_input
+    test eax, eax
+    jnz 9f
     # caret, first changed character, changed count, status (1: no string), string
     cmp r12d, 26
     jb 9f

@@ -12,6 +12,8 @@
 #                           gets rhun's folder on PATH: zsh, bash, sh, fish, nushell, tcsh)
 #   --no-url-scheme         Linux: do not open rhun://file/ links in rhun (by default a hidden desktop
 #                           entry handles them; on macOS the app itself declares the scheme)
+#   --chinese-input         Linux/WSL: enable app-private Chinese Pinyin input
+#   --no-chinese-input      Linux/WSL: disable app-private Chinese Pinyin input
 #   --make-default          with --configure-files: use rhun for text, source and configuration files,
 #                           and as the editor programs such as git ask for (VISUAL and EDITOR)
 #   --no-make-default       accepted for compatibility; installation never prompts for defaults
@@ -74,6 +76,8 @@ usage: install.sh [options]   (curl -fsSL .../install.sh | sh -s -- [options])
   --app-dir DIR           macOS: where rhun.app goes (default /Applications)
   --no-modify-path        leave shell startup files alone
   --no-url-scheme         Linux: do not open rhun://file/ links in rhun
+  --chinese-input         Linux/WSL: enable Chinese Pinyin input (also available in Settings)
+  --no-chinese-input      Linux/WSL: disable Chinese Pinyin input
   --configure-files       configure an existing installation without downloading it
                           add --make-default to make rhun the default editor manually
                           (files, and VISUAL and EDITOR for git and the like)
@@ -113,6 +117,7 @@ downloader() {
         dl=curl
     elif have wget; then
         dl=wget
+        if wget --help 2>&1 | grep -q BusyBox; then dl=busybox-wget; fi
     else
         fail "needs curl or wget to download rhun"
     fi
@@ -135,6 +140,30 @@ fetch() {
             return 1
         fi
         curl "$@" -o "$file" "$url"
+    elif [ "$dl" = busybox-wget ]; then
+        # Alpine's built-in wget lacks GNU timeout/retry options. Keep downloads
+        # bounded and retry transient errors without retrying permanent HTTP failures.
+        url=$1 file=$2 attempt=1
+        if wget --help 2>&1 | grep -q -- '-T '; then
+            set -- wget -q -T 30 -O "$file" "$url"
+        elif have timeout; then
+            # Older BusyBox builds omit wget's -T option.
+            set -- timeout 300 wget -q -O "$file" "$url"
+        else
+            fail 'BusyBox wget needs timeout; install curl or GNU wget instead'
+        fi
+        while :; do
+            "$@" 2>"$tmp/download-errors" && return 0
+            if [ "$attempt" -ge 4 ]; then break; fi
+            if grep -Eq 'HTTP/[0-9.]+ [0-9][0-9][0-9]' "$tmp/download-errors" &&
+                ! grep -Eq 'HTTP/[0-9.]+ (429|500|502|503|504)' "$tmp/download-errors"; then
+                break
+            fi
+            attempt=$((attempt + 1))
+            sleep 1
+        done
+        cat "$tmp/download-errors" >&2
+        return 1
     else
         url=$1 file=$2
         set -- -nv
@@ -206,6 +235,23 @@ unpack_linux() {
 place_binary() {
     dir=$(dirname "$1")
     mkdir -p "$dir"
+    # Keep the optional engine with every normal installation, so Settings can enable it offline.
+    # Versioned directories keep an already-running engine's libraries valid during an update.
+    if [ -x "$src/share/rhun/ime/usr/bin/fcitx5" ]; then
+        ime_parent=$dir/rhun-runtime
+        if [ "$(basename "$dir")" = bin ] &&
+            mkdir -p "$(dirname "$dir")/share/rhun" 2>/dev/null; then
+            ime_parent=$(dirname "$dir")/share/rhun
+        fi
+        mkdir -p "$ime_parent"
+        if [ ! -d "$ime_parent/ime-$version" ]; then
+            mkdir "$ime_parent/.ime-$$"
+            cp -R "$src/share/rhun/ime/." "$ime_parent/.ime-$$/"
+            mv "$ime_parent/.ime-$$" "$ime_parent/ime-$version"
+        fi
+        ln -s "ime-$version" "$ime_parent/.ime-link-$$"
+        mv -Tf "$ime_parent/.ime-link-$$" "$ime_parent/ime"
+    fi
     # Older archives have no separate data notice. New archives retain it on updates too.
     if [ -f "$src/LICENSE-Unicode.txt" ]; then
         license_tmp=
@@ -228,6 +274,19 @@ place_binary() {
     cp "$src/bin/rhun" "$dir/.rhun.new"
     chmod 755 "$dir/.rhun.new"
     mv -f "$dir/.rhun.new" "$1"
+}
+
+# Explicit installer choice changes only rhun's own configuration, never the system input method.
+configure_chinese_input() {
+    [ -n "$chinese_input" ] || return 0
+    cfg_dir=${XDG_CONFIG_HOME:-$HOME/.config}/rhun
+    mkdir -p "$cfg_dir"
+    cfg=$cfg_dir/config
+    cfg_tmp=$(mktemp "$cfg_dir/.config.XXXXXX")
+    if [ -f "$cfg" ]; then cat "$cfg" > "$cfg_tmp"; fi
+    # The INI reader uses the last occurrence; preserve unrelated settings and comments.
+    printf '\n[editor]\nchinese_input = %s\n' "$chinese_input" >> "$cfg_tmp"
+    mv -f "$cfg_tmp" "$cfg"
 }
 
 # place_desktop PREFIX EXE: the desktop entry, which starts EXE by its path (graphical sessions often
@@ -686,6 +745,7 @@ install_fresh() {
         unpack_linux
         say 'Installing binary and desktop entry'
         place_binary "$prefix/bin/rhun"
+        configure_chinese_input
         place_desktop "$prefix" "$prefix/bin/rhun"
         register_url_scheme "$prefix"
         add_path "$prefix/bin"
@@ -737,6 +797,7 @@ uninstall() {
             rm -f "$prefix/share/icons/hicolor/$d"
         done
         rm -f "$prefix/share/licenses/rhun/LICENSE-Unicode.txt" "$prefix/bin/rhun-LICENSE-Unicode.txt"
+        rm -rf "$prefix/share/rhun/ime" "$prefix/share/rhun"/ime-* "$prefix/bin/rhun-runtime"
         rmdir "$prefix/share/licenses/rhun" 2>/dev/null || true
         refresh_desktop "$prefix"
         say "rhun is removed from $prefix"
@@ -769,6 +830,7 @@ uninstall() {
 main() {
     version='' prefix='' appdir='' modify_path=1 mode=install target='' quiet='' make_default=no
     url_scheme=yes
+    chinese_input=
     output_style
     while [ $# -gt 0 ]; do
         case $1 in
@@ -777,6 +839,8 @@ main() {
         --app-dir) appdir=${2:-}; shift ;;
         --no-modify-path) modify_path= ;;
         --no-url-scheme) url_scheme=no ;;
+        --chinese-input) chinese_input=true ;;
+        --no-chinese-input) chinese_input=false ;;
         --make-default) make_default=yes ;;
         --no-make-default) make_default=no ;;
         --configure-files) mode=configure ;;
@@ -796,6 +860,9 @@ main() {
     case $appdir in '' | /*) ;; *) appdir=$(pwd)/$appdir ;; esac
     [ -n "${HOME:-}" ] || fail "HOME is not set"
     platform
+    if [ -n "$chinese_input" ] && [ "$os" != linux ]; then
+        fail '--chinese-input is for Linux/WSL; this platform uses its system input method'
+    fi
     base=${RHUN_RELEASES_URL:-$RELEASES}
     tmp=$(mktemp -d 2>/dev/null || mktemp -d -t rhun)
     trap 'rm -rf "$tmp"' EXIT

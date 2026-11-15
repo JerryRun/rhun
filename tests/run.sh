@@ -48,6 +48,8 @@ if [ "$(uname -s)" = Linux ]; then
     check wayland-paste build/wayland_paste_test
     check wayland-send build/wayland_send_test
     check wayland-metadata build/wayland_metadata_test
+    check wayland-cursor build/wayland_cursor_test
+    check ime-ownership build/ime_ownership_test
     check clipboard-async build/clipboard_async_test
     if [ -f /usr/share/fonts/truetype/nanum/NanumGothicCoding.ttf ]; then
         check font-fallback build/font_fallback_test

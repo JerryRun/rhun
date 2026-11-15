@@ -13,6 +13,8 @@
 
 .bss
 .p2align 4
+.globl wl_ime_wire_output
+wl_ime_wire_output:
 out_buf: .zero OUTSZ
 .globl wl_wire_input, wl_wire_input_len, wl_wire_fdqueue_len, wl_wire_next_id
 wl_wire_input:
@@ -40,6 +42,8 @@ sockaddr: .zero 110
 
 # globals (object ids / names)
 id_registry: .long 0
+.globl wl_cursor_wire_compositor
+wl_cursor_wire_compositor:
 id_compositor: .long 0
 id_shm: .long 0
 id_wm_base: .long 0
@@ -53,10 +57,14 @@ id_cursor_mgr: .long 0
 id_viewporter: .long 0
 id_fscale_mgr: .long 0
 id_activation: .long 0
-.globl wl_ime_id, wl_ime_entered
+.globl wl_ime_id, wl_ime_entered, wl_ime_sync, wl_ti_cursor, wl_ti_event
+.globl wl_ime_wire_manager, wl_ime_wire_requested, wl_ime_wire_surface
+.globl wl_ime_wire_ti, wl_ime_wire_ti_on, wl_ime_wire_ti_entered
+wl_ime_wire_manager:
 id_text_manager: .long 0
 wl_ime_id: .long 0
 wl_ime_entered: .long 0
+wl_ime_wire_requested:
 ime_requested: .long 0
 ime_focus: .long 0
 ime_serial: .long 0
@@ -66,8 +74,11 @@ ime_target: .quad 0
 ime_rect: .zero 12
 # text-input-v3: an input method's composition and committed text (ime.s)
 id_ti_mgr: .long 0
+wl_ime_wire_ti:
 id_ti: .long 0
+wl_ime_wire_ti_on:
 ti_on: .long 0                  # native input enabled, unless the private engine owns keys
+wl_ime_wire_ti_entered:
 ti_entered: .long 0             # the compositor gave this surface text-input focus
 ti_rect: .zero 16               # the cursor rectangle last sent, logical
 ti_pre_len: .long 0             # pending until done: the composition (-1 none) and committed text
@@ -80,12 +91,15 @@ sync_done: .long 0
 wl_wire_seat_version:
 seat_ver: .long 0
 
+wl_ime_wire_surface:
 id_surface: .long 0
 id_xdg_surface: .long 0
 id_toplevel: .long 0
 id_deco: .long 0
 id_viewport: .long 0
 id_fscale: .long 0
+.globl wl_cursor_wire_pointer
+wl_cursor_wire_pointer:
 id_pointer: .long 0
 .globl wl_wire_keyboard, wl_wire_seat, wl_wire_seat_version
 wl_wire_keyboard:
@@ -120,6 +134,8 @@ last_serial: .long 0
 .globl wl_send_serial_known
 wl_send_serial_known:
 last_serial_known: .long 0
+.globl wl_cursor_wire_enter_serial
+wl_cursor_wire_enter_serial:
 enter_serial: .long 0
 cur_shape: .long 0
 ptr_x: .long 0             # fixed 24.8 logical
@@ -1416,6 +1432,9 @@ wl_ti_event:
 .Lti_leave:
     mov dword ptr [rip + ti_entered], 0
     call wl_ti_cursor
+    call fcitx_owns_input
+    test eax, eax
+    jnz .Lti_ret
     xor edi, edi
     xor esi, esi
     call ime_preedit
@@ -1433,7 +1452,7 @@ wl_ti_event:
     mov [rip + ti_commit_len], eax
     jmp .Lti_ret
 .Lti_done:
-    call fcitx_active
+    call fcitx_owns_input
     test eax, eax
     jnz .Lti_clear_pending
     mov esi, [rip + ti_commit_len]
@@ -1478,7 +1497,7 @@ wl_ti_cursor:
     PROLOGUE 16
     cmp dword ptr [rip + id_ti], 0
     je 9f
-    call fcitx_active
+    call fcitx_owns_input
     test eax, eax
     setz al
     movzx eax, al
@@ -1495,6 +1514,9 @@ wl_ti_cursor:
 .Lti_disable:
     MSG [rip + id_ti], 2          # disable while the private engine owns keys
     END
+    call fcitx_owns_input
+    test eax, eax
+    jnz .Lti_commit_mode
     xor edi, edi
     xor esi, esi
     call ime_preedit
@@ -1601,8 +1623,6 @@ on_pointer:
     call send_motion
     jmp .Lp_ret
 .Lp_leave:
-    cmp dword ptr [rip + wsl_window_native], 0
-    jne .Lp_ret
     call app_on_pointer_leave
     jmp .Lp_ret
 .Lp_motion:
@@ -1616,8 +1636,6 @@ on_pointer:
     mov eax, [r12]
     mov [rip + last_serial], eax
     mov dword ptr [rip + last_serial_known], 1
-    cmp dword ptr [rip + wsl_window_native], 0
-    jne .Lp_ret
     mov eax, [r12 + 8]            # linux button code
     mov edi, BTN_LEFT
     cmp eax, 0x110
@@ -1633,8 +1651,6 @@ on_pointer:
     call app_on_button
     jmp .Lp_ret
 .Lp_axis:
-    cmp dword ptr [rip + wsl_window_native], 0
-    jne .Lp_ret
     # in 1/(256 * 120) physical pixels: the wheel scrolls ~3 lines a notch, a touchpad 3x the
     # finger's travel, and what falls short of a pixel carries to the next event
     movsxd rax, dword ptr [r12 + 8]   # fixed 24.8 logical
@@ -1679,8 +1695,6 @@ on_pointer:
     ret
 
 send_motion:
-    cmp dword ptr [rip + wsl_window_native], 0
-    jne 9f
     push rbx
     mov edi, [rip + ptr_x]
     call fixed_to_phys
@@ -1691,7 +1705,6 @@ send_motion:
     mov esi, eax
     call app_on_motion
     pop rbx
-9:
     ret
 
 # on_keyboard(opcode, args)
@@ -1747,6 +1760,7 @@ on_keyboard:
     SYS SYS_close
     jmp .Lk_ret
 .Lk_enter:
+    call wl_cursor_refresh
     mov eax, [r12]
     mov [rip + last_serial], eax
     mov dword ptr [rip + last_serial_known], 1
@@ -1763,6 +1777,13 @@ on_keyboard:
     mov eax, [r12]
     mov [rip + last_serial], eax
     mov dword ptr [rip + last_serial_known], 1
+    cmp dword ptr [rip + wsl_window_keyboard], 0
+    je .Lk_native_key
+    mov edi, [r12 + 8]
+    call wl_host_key_supported
+    test eax, eax
+    jnz .Lk_ret
+.Lk_native_key:
     mov edi, [r12 + 8]
     add edi, 8
     mov esi, [r12 + 12]
@@ -1800,12 +1821,14 @@ on_keyboard:
     mov dword ptr [rip + rep_key], 0
     jmp .Lk_ret
 .Lk_mods:
+    mov eax, [r12 + 16]
+    mov [rip + kb_group], eax
+    cmp dword ptr [rip + wsl_window_keyboard], 0
+    jne .Lk_ret
     mov eax, [r12 + 4]
     or eax, [r12 + 8]
     or eax, [r12 + 12]
     mov [rip + kb_mods], eax
-    mov eax, [r12 + 16]
-    mov [rip + kb_group], eax
     mov edi, [rip + kb_mods]
     and edi, MOD_SHIFT | MOD_CTRL | MOD_ALT | MOD_SUPER
     call app_on_modifiers
@@ -1817,6 +1840,58 @@ on_keyboard:
     mov [rip + rep_delay], eax
 .Lk_ret:
     EPILOGUE
+
+# App-private WSLg raw relay: host IME never receives these physical keys.
+# The helper only forwards keys for this HWND; Wayland still owns focus/mouse.
+wl_host_key_supported:
+    xor eax, eax
+    test edi, edi
+    jle 9f
+    cmp edi, 83
+    jle 8f
+    cmp edi, 86
+    jl 9f
+    cmp edi, 88
+    jle 8f
+    cmp edi, 96
+    jl 9f
+    cmp edi, 100
+    jle 8f
+    cmp edi, 102
+    jl 9f
+    cmp edi, 111
+    jle 8f
+    cmp edi, 119
+    jne 9f
+8:  mov eax, 1
+9:  ret
+
+FN wl_host_input_reset
+    mov dword ptr [rip + rep_key], 0
+    ret
+
+FN wl_host_key
+    PROLOGUE
+    mov r12d, edi
+    mov r13d, esi
+    mov [rip + kb_mods], edx
+    mov edi, edx
+    and edi, MOD_SHIFT | MOD_CTRL | MOD_ALT | MOD_SUPER
+    call app_on_modifiers
+    lea edi, [r12 + 8]
+    test r13d, r13d
+    jz 1f
+    call key_emit
+    jmp 2f
+1:  mov esi, [rip + kb_group]
+    mov edx, [rip + kb_mods]
+    and edx, -4
+    call xkb_keysym
+    mov edi, eax
+    mov esi, [rip + kb_mods]
+    and esi, MOD_SHIFT | MOD_CTRL | MOD_ALT | MOD_SUPER
+    call viewpic_key_up
+2:  EPILOGUE
 
 # key_emit(xkb keycode)
 key_emit:
@@ -2013,7 +2088,19 @@ theme_cursor:
     MSG [rip + id_compositor], 0  # create_surface
     ARG [rip + cur_surf]
     END
-6:  MSG [rip + cur_surf], 8       # set_buffer_scale
+6:  # Give the surface its cursor role before its first buffer commit.
+    # WSLg otherwise creates a normal RAIL window and converts it afterward.
+    lea rax, [rip + cur_hx]
+    mov r12d, [rax + rbx*4]
+    lea rax, [rip + cur_hy]
+    mov r13d, [rax + rbx*4]
+    MSG [rip + id_pointer], 0     # set_cursor
+    ARG [rip + enter_serial]
+    ARG [rip + cur_surf]
+    ARG r12d
+    ARG r13d
+    END
+    MSG [rip + cur_surf], 8       # set_buffer_scale
     ARG [rip + cur_bs]
     END
     lea rax, [rip + cur_ids]
@@ -2030,16 +2117,6 @@ theme_cursor:
     ARG 4096
     END
     MSG [rip + cur_surf], 6       # commit
-    END
-    lea rax, [rip + cur_hx]
-    mov r12d, [rax + rbx*4]
-    lea rax, [rip + cur_hy]
-    mov r13d, [rax + rbx*4]
-    MSG [rip + id_pointer], 0     # set_cursor
-    ARG [rip + enter_serial]
-    ARG [rip + cur_surf]
-    ARG r12d
-    ARG r13d
     END
 9:  EPILOGUE
 
@@ -2250,7 +2327,17 @@ wl_repeat_tick:
     call key_emit
 1:  ret
 
+# Native WSLg motion can arrive without a Wayland enter/shape change.
+# The shared host cursor may have been cleared by another window meanwhile.
+FN wl_cursor_refresh
+    mov dword ptr [rip + cur_shape], -1
+    ret
+
+.globl wl_set_cursor
 wl_set_cursor:
+    # No cursor request is valid before this pointer has entered the surface.
+    cmp dword ptr [rip + enter_serial], 0
+    je 1f
     cmp edi, [rip + cur_shape]
     je 1f
     mov [rip + cur_shape], edi
@@ -3550,10 +3637,18 @@ paste_fd: .long -1
 .globl g_csd, g_dpi_scale
 g_csd: .long 1
 deco_applied: .long -1
+.globl wl_cursor_wire_cur_bs
+wl_cursor_wire_cur_bs:
 cur_bs: .long 0
 cur_surf: .long 0
+.globl wl_cursor_wire_cur_ids
+wl_cursor_wire_cur_ids:
 cur_ids: .zero 4 * 8
+.globl wl_cursor_wire_cur_hx
+wl_cursor_wire_cur_hx:
 cur_hx: .zero 4 * 8
+.globl wl_cursor_wire_cur_hy
+wl_cursor_wire_cur_hy:
 cur_hy: .zero 4 * 8
 .p2align 3
 xcur: .zero XC_SIZE

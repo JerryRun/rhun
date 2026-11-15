@@ -383,7 +383,9 @@ Find, replace and find in files ignore case until their Aa is on, in every scrip
 
 The terminal panel docks at the bottom by default. Use its **Move Panel to Right / Bottom** header button, the **Terminal: Move Panel to Right / Bottom** commands, or **Settings > Terminal > Terminal position**. Drag its inner edge to resize it; bottom height and right width are saved separately. Moving the dock keeps every running shell, task and split pane.
 
-All commands are listed in the command palette. In the terminal, Ctrl+Shift+C and Ctrl+Shift+V copy and paste, Ctrl+Shift+W goes to the program instead of closing the editor's tabs, Shift+PageUp and Shift+PageDown scroll back, Ctrl+Tab and Ctrl+Shift+Tab switch between terminals, and Shift keeps the mouse for selecting when a program uses it. A command run from the palette acts where its shortcut would: Zoom In with the terminal focused zooms the terminal.
+All commands are listed in the command palette. On Linux and Windows, Ctrl+C copies selected terminal text; without a selection it reaches the program as usual, including interrupting a running command. Ctrl+V pastes clipboard text. Open **Keyboard Shortcuts** from Settings or the command palette, search for **Terminal: Copy Selection** / **Terminal: Paste**, and press F2 to edit the selected binding. Enter saves immediately; an empty value disables that binding. Shortcuts use the shared [keys] configuration; legacy terminal.copy_key and terminal.paste_key values remain compatible. Ctrl+Shift+C, Ctrl+Shift+V and Shift+Insert remain available; macOS keeps Command+C/V by default. Pasted text uses bracketed paste when the program enables it.
+
+In the terminal, Ctrl+Shift+W goes to the program instead of closing the editor's tabs, Shift+PageUp and Shift+PageDown scroll back, Ctrl+Tab and Ctrl+Shift+Tab switch between terminals, and Shift keeps the mouse for selecting when a program uses it. A command run from the palette acts where its shortcut would: Zoom In with the terminal focused zooms the terminal.
 
 Links in the terminal open with Cmd+click on macOS and Ctrl+click on Linux and Windows, as in VS Code; a plain click still selects. Hovering a link underlines it, and its tooltip names the click. An `http://` or `https://` URL opens in the default browser, such as the `http://localhost:5173/` a dev server prints. The path of a file that exists opens in a tab: a name from `ls`, a relative or absolute path, or `~/...`, and `file:LINE` or `file:LINE:COL` from a compiler or `grep -n` opens at that place. Relative paths start in the shell's current folder on Linux and macOS, then in the project folder, where they also start on Windows. The click works in programs that take the mouse too.
 
@@ -744,7 +746,30 @@ Text after the command is passed to an extension command as its arguments, and `
 limits the binding to a context (`editorFocus`, `resourceLang == Rust`, `terminalFocus`, ...; the
 clause language and its keys are in the extension protocol's "When clauses"). Your bindings win
 over extensions', which win over rhun's own. **Keyboard Shortcuts** in the command palette lists
-every binding, where it comes from, its clause and what overrides it.
+effective bindings and their source and context. Press **F2** to edit the selected
+binding, then press the new shortcut. A second stroke records a chord. Enter saves
+immediately; Escape cancels; Backspace clears and disables that binding on save.
+Press F2 inside the prompt to type a name instead (for example, ctrl+alt+p or
+ctrl+k ctrl+c), and F2 again to return to recording. The list updates to the new key
+and omits overridden defaults. Enter in the list
+still runs the selected command. Editing preserves the binding's arguments and context.
+The Settings header links to this same list.
+
+For WSL/Linux Chinese input, search for **Input: Toggle Chinese Pinyin**. It accepts ordinary
+key combinations and modifier-only gestures such as shift, ctrl+shift, alt+shift and
+ctrl+alt. Modifier-only gestures run on a clean release; typing, clicking or using another
+shortcut cancels them. Native Windows uses the system IME as before.
+
+    [keys]
+    alt+shift+p = toggle_chinese
+    ctrl+alt+space = none
+    ctrl+alt+c = terminal_copy when terminalFocus && terminalHasSelection
+    ctrl+alt+v = terminal_paste when terminalFocus
+    ctrl+v = none when terminalFocus
+
+The terminalHasSelection context ensures the copy key reaches the terminal program when
+nothing is selected. Ctrl+Shift+C/V and Shift+Insert are also in the shared list and
+can be edited or disabled using the same mechanism.
 
 At multiple cursors (see [Multiple cursors](#multiple-cursors)), copied selections stay paired with their destinations. For other multiline text, `multi_cursor_paste = spread` under `[editor]` pastes one line per cursor when the counts match. Set it to `full` to paste all the text at each cursor. The same choice is available as **Paste at multiple cursors** in Settings.
 

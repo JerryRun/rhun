@@ -43,7 +43,7 @@ def run_case(engine_loss):
                     assert line not in (b'', b'error\n'), (text, line)
                     parts.append(line)
             command('cmd new_file')
-            command('wait 800')
+            command('wait-input')
             command('key ctrl+alt+space')
             command('wait 150')
             command('type zhongwen')

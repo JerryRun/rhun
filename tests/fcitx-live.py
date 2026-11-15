@@ -2,7 +2,7 @@
 """Real Windows keyboard -> WSLg -> rhun -> private Fcitx -> saved UTF-8.
 
 Only the unique test window is focused/maximized; no system IME configuration.
-Run inside tools/run-fcitx.sh, with --live to allow native GUI interaction.
+Run with --live to allow native GUI interaction. Uses bundled private input.
 """
 import base64
 import os
@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PS = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
 
 if '--live' not in sys.argv:
-    raise SystemExit('Use tools/run-fcitx.sh /usr/bin/python3 tests/fcitx-live.py --live')
+    raise SystemExit('Use /usr/bin/python3 tests/fcitx-live.py --live')
 
 with tempfile.TemporaryDirectory(prefix='rhun-fcitx-live-') as tmp:
     work = Path(tmp)
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='rhun-fcitx-live-') as tmp:
     config.parent.mkdir(parents=True)
     config.write_text('[ui]\nsidebar=false\nagents_panel=false\n'
         'font=/mnt/c/Windows/Fonts/msyh.ttc\n'
-        '[editor]\nfallback_font=/mnt/c/Windows/Fonts/msyh.ttc\n'
+        '[editor]\nchinese_input=true\nchinese_follow_host=false\nfallback_font=/mnt/c/Windows/Fonts/msyh.ttc\n'
         '[files]\nrestore_session=false\nrestore_project=false\n'
         '[updates]\ncheck=false\n[git]\nenabled=false\n')
     env = dict(os.environ, RHUN_BACKEND='wayland', RHUN_WSL_WINDOW_FIX='1',
@@ -127,6 +127,7 @@ function ToggleChinese {
                 capture_output=True, timeout=25)
             assert run.returncode == 0, run.stderr.decode(errors='replace')
 
+        command('wait-input')
         command('wait 1200')
         native("$p=New-Object IMETest+Point\n$p.X=100;$p.Y=86\n[void][IMETest]::ClientToScreen($h,[ref]$p)\n[void][IMETest]::SetCursorPos($p.X,$p.Y)\n[IMETest]::mouse_event(2,0,0,0,[UIntPtr]::Zero)\n[IMETest]::mouse_event(4,0,0,0,[UIntPtr]::Zero)\nStart-Sleep -Milliseconds 250\nToggleChinese\nforeach($c in 'ZHONGWEN'.ToCharArray()){Key ([byte][char]$c)}")
         command('wait 200')

@@ -49,7 +49,6 @@ bindings: .zero VEC_SIZE        # KB records
 kb_tmpl: .zero KB_SIZE          # the record being made
 kb_seq: .long 0
 kb_err: .long 0
-ime_mods_mask: .long 0
 ime_mods_previous: .long 0
 ime_mods_armed: .long 0
 .p2align 3
@@ -73,6 +72,10 @@ ks_strings: .zero VEC_SIZE      # owned strings of the Keyboard Shortcuts list
 ks_sb: .zero SB_SIZE
 keybuf: .zero 128
 keybuf2: .zero 256
+ke_old: .quad 0                # owned prompt data, independent of binding rebuilds
+ke_value: .quad 0
+ke_none: .quad 0
+ke_sb: .zero SB_SIZE
 
 .text
 
@@ -128,14 +131,16 @@ FN parse_chinese_toggle
     PROLOGUE
     mov r12, rdi
     mov r13, rsi
-    call parse_combo
-    test eax, eax
-    jnz .Lict_done
-    xor r14d, r14d
+    xor r14d, r14d              # modifier mask
+    xor r15d, r15d              # exactly one regular key
 .Lict_token:
     test r13, r13
     jz .Lict_bad
     xor ebx, ebx
+    cmp byte ptr [r12], '+'
+    jne 1f
+    mov ebx, 1                 # '+' as the key, including Ctrl++
+    jmp 2f
 1:  cmp rbx, r13
     jae 2f
     cmp byte ptr [r12 + rbx], '+'
@@ -148,28 +153,39 @@ FN parse_chinese_toggle
     mov rsi, rbx
     call combo_token
     test edx, edx
-    jz .Lict_bad
-    or r14d, edx
-    add r12, rbx
-    sub r13, rbx
     jz 3f
+    or r14d, edx
+    jmp 4f
+3:  test eax, eax
+    jz .Lict_bad
+    test r15d, r15d
+    jnz .Lict_bad
+    mov r15d, eax
+4:  add r12, rbx
+    sub r13, rbx
+    jz .Lict_finish
     inc r12
     dec r13
     jmp .Lict_token
-3:  cmp r14d, MOD_CTRL | MOD_SHIFT
-    je 4f
+.Lict_finish:
+    mov eax, r15d
+    test eax, eax
+    jnz .Lict_valid
+    cmp r14d, MOD_SHIFT
+    je 5f
+    cmp r14d, MOD_CTRL | MOD_SHIFT
+    je 5f
     cmp r14d, MOD_ALT | MOD_SHIFT
-    je 4f
+    je 5f
     cmp r14d, MOD_CTRL | MOD_ALT
     jne .Lict_bad
-4:                 # one modifier alone would interfere with typing
-    mov eax, KEY_IME_MODIFIERS
+5:  mov eax, KEY_IME_MODIFIERS
+.Lict_valid:
     mov edx, r14d
-    jmp .Lict_done
+    EPILOGUE
 .Lict_bad:
     xor eax, eax
     xor edx, edx
-.Lict_done:
     EPILOGUE
 
 # A modifier-only shortcut fires on release, unless a key/click/focus change used it.
@@ -187,6 +203,11 @@ FN keys_ime_key
 2:  ret
 
 FN keys_ime_modifiers
+    push rdi
+    call palette_binding_modifiers
+    pop rdi
+    test eax, eax
+    jnz .Lime_recording
 .ifdef WINDOWS
     ret                         # the Windows system IME owns modifier shortcuts
 .else
@@ -197,20 +218,18 @@ FN keys_ime_modifiers
     mov ebx, edi
     mov r12d, [rip + ime_mods_previous]
     mov [rip + ime_mods_previous], edi
-    mov r13d, [rip + ime_mods_mask]
-    test r13d, r13d
-    jz 9f
     cmp dword ptr [rip + g_win_focused], 0
     je 8f
+    mov r13d, [rip + ime_mods_armed]
+    test r13d, r13d
+    jz 2f
     cmp ebx, r13d
-    jne 1f
-    cmp r12d, ebx
-    je 9f
-    mov dword ptr [rip + ime_mods_armed], 1
-    jmp 9f
-1:  cmp dword ptr [rip + ime_mods_armed], 0
     je 9f
     mov dword ptr [rip + ime_mods_armed], 0
+    mov eax, ebx
+    or eax, r13d
+    cmp eax, ebx
+    je 2f                      # more modifiers: consider the larger gesture
     cmp r12d, r13d
     jne 9f
     mov eax, ebx
@@ -225,10 +244,30 @@ FN keys_ime_modifiers
     mov rdi, rdx
     call keys_run
     jmp 9f
+2:  cmp ebx, r12d
+    je 9f
+    test ebx, ebx
+    jz 9f
+    mov eax, ebx
+    or eax, r12d
+    cmp eax, ebx
+    jne 9f                     # never arm while releasing another shortcut
+    mov edi, KEY_IME_MODIFIERS
+    mov esi, ebx
+    call keys_lookup
+    test rax, rax
+    jz 9f
+    lea rcx, [rip + cmd_none]
+    cmp rax, rcx
+    je 9f
+    mov [rip + ime_mods_armed], ebx
+    jmp 9f
 8:  call keys_ime_cancel
 9:  EPILOGUE
 .endif
 .endif
+.Lime_recording:
+    ret
 
 # combo_token(ptr, len) -> edx mod bit if a modifier, else eax keysym
 combo_token:
@@ -405,7 +444,7 @@ kb_strokes:
     mov [rsp], rcx
     mov rdi, rax
     mov rsi, rdx
-    call parse_combo
+    call parse_chinese_toggle
     test eax, eax
     jz 8f
     mov [rip + kb_tmpl + KB_key], eax
@@ -418,12 +457,16 @@ kb_strokes:
     call next_word
     test rdx, rdx
     jz 7f
+    cmp dword ptr [rip + kb_tmpl + KB_key], KEY_IME_MODIFIERS
+    je 8f
     mov [rsp], rcx
     mov rdi, rax
     mov rsi, rdx
-    call parse_combo
+    call parse_chinese_toggle
     test eax, eax
     jz 8f
+    cmp eax, KEY_IME_MODIFIERS
+    je 8f                       # modifier gestures are standalone, never chord endings
     mov [rip + kb_tmpl + KB_key2], eax
     mov [rip + kb_tmpl + KB_mods2], edx
     add r12, [rsp]
@@ -626,7 +669,7 @@ kb_tmpl_clear:
 # kb_default_list(cmd, keys cstr, rank, ext): each space-separated stroke of a command's default
 #   keys; an extension's (rank DEFAULT) needs a modifier
 kb_default_list:
-    PROLOGUE 16
+    PROLOGUE 32
     mov rbx, rdi
     mov r12, rsi
     mov [rsp], edx
@@ -651,9 +694,6 @@ kb_default_list:
     cmp [rbx + CMD_fn], rcx
     jne .Lkbd_normal
     call parse_chinese_toggle
-    cmp eax, KEY_IME_MODIFIERS
-    jne .Lkbd_parsed
-    mov [rip + ime_mods_mask], edx
     jmp .Lkbd_parsed
 .Lkbd_normal:
     call parse_combo
@@ -667,6 +707,27 @@ kb_default_list:
 2:  mov [rip + kb_tmpl + KB_key], eax
     mov [rip + kb_tmpl + KB_mods], edx
     mov [rip + kb_tmpl + KB_cmd], rbx
+    mov [rsp + 16], r15
+    lea rcx, [rip + cmd_term_copy]
+    cmp [rbx + CMD_fn], rcx
+    je .Lkbd_copy_guard
+    lea rcx, [rip + cmd_term_paste]
+    cmp [rbx + CMD_fn], rcx
+    jne .Lkbd_text
+    lea rdi, [rip + .Lterminal_focus]
+    jmp .Lkbd_guard
+.Lkbd_copy_guard:
+    lea rdi, [rip + .Lterminal_selection]
+.Lkbd_guard:
+    mov r15, rdi
+    call strlen
+    mov rdi, r15
+    mov rsi, rax
+    xor edx, edx
+    call when_compile
+    mov [rip + kb_tmpl + KB_when], rax
+.Lkbd_text:
+    mov r15, [rsp + 16]
     mov rdi, r14
     mov rsi, r15
     call mem_dup
@@ -909,9 +970,9 @@ FN keys_reload
     PROLOGUE
     call keys_chord_cancel
     call keys_ime_cancel
-    mov dword ptr [rip + ime_mods_mask], 0
     call kb_free_all
     call palette_close_keys     # the Keyboard Shortcuts list holds bindings
+    call palette_ext_keys_reset
     call keys_build
     EPILOGUE
 
@@ -935,6 +996,20 @@ keys_build:
     mov edx, KRANK_BUILTIN
     xor ecx, ecx
     call kb_default_list
+    # Compatibility: old terminal config keys seed normal binding records.
+    mov rsi, [rip + cfg_term_copy_key]
+    lea rax, [rip + cmd_term_copy]
+    cmp [rbx + CMD_fn], rax
+    je 12f
+    mov rsi, [rip + cfg_term_paste_key]
+    lea rax, [rip + cmd_term_paste]
+    cmp [rbx + CMD_fn], rax
+    jne 13f
+12: mov rdi, rbx
+    mov edx, KRANK_BUILTIN
+    xor ecx, ecx
+    call kb_default_list
+13:
     add rbx, CMD_SIZE
     jmp 1b
 2:  # built-in chords
@@ -1161,6 +1236,11 @@ FN keys_lookup
     mov r13d, esi
     call kb_norm
     mov r12d, eax
+    cmp r12d, KEY_IME_MODIFIERS
+    jne .Lkl_latin
+    xor r14d, r14d
+    jmp 1f
+.Lkl_latin:
     mov edi, [rip + g_key_latin]
     call kb_norm
     mov r14d, eax               # the same key on the Latin layout, matched second
@@ -1548,6 +1628,7 @@ fmt_stroke:
     add rbx, 16
     jmp 25b
 .endif
+.Lfmt_ascii:
     test r14d, MOD_CTRL
     jz 3f
     lea rsi, [rip + .Lctrl]
@@ -1623,6 +1704,14 @@ fmt_binding:
     call fmt_stroke
 1:  pop rbx
     ret
+
+# Configuration names must remain ASCII on every platform (including macOS).
+FN keys_format_stroke
+    PROLOGUE
+    mov r13, rdi
+    mov r14d, esi
+    mov r15d, edx
+    jmp .Lfmt_ascii
 
 # kb_shadow(kb) -> rax the binding with the same strokes that wins over it (no clause, or the same
 #   clause), or 0
@@ -1907,7 +1996,227 @@ FN keys_chord_dump
 
 # ---------------------------------------------------------------- Keyboard Shortcuts
 
-# FN keys_list(add fn(label, len, detail, cmd)): every binding that is not refused, for the
+FN keys_binding_run
+    mov rax, [rdi + KB_cmd]
+    mov rdi, rax
+    jmp [rax + CMD_fn]
+
+# F2 edits exactly one stroke/context in the existing [keys] configuration.
+FN keys_binding_edit
+    PROLOGUE
+    mov rbx, rdi
+    mov rdi, [rip + ke_old]
+    call mem_free
+    mov rdi, [rip + ke_value]
+    call mem_free
+    mov rdi, [rip + ke_none]
+    call mem_free
+    mov rdi, [rbx + KB_text]
+    call strlen
+    mov rsi, rax
+    mov rdi, [rbx + KB_text]
+    call mem_dup
+    mov [rip + ke_old], rax
+    lea rdi, [rip + ke_sb]
+    call sb_clear
+    mov rax, [rbx + KB_cmd]
+    mov rsi, [rax + CMD_name]
+1:  lea rdi, [rip + ke_sb]
+    call sb_push_cstr
+    cmp qword ptr [rbx + KB_alen], 0
+    je 2f
+    lea rdi, [rip + ke_sb]
+    mov esi, ' '
+    call sb_push_byte
+    lea rdi, [rip + ke_sb]
+    mov rsi, [rbx + KB_args]
+    mov rdx, [rbx + KB_alen]
+    call sb_push
+2:  mov rdi, [rbx + KB_when]
+    test rdi, rdi
+    jz 3f
+    call when_source
+    mov r12, rax
+    mov r13, rdx
+    lea rdi, [rip + ke_sb]
+    lea rsi, [rip + .Lsp_when_sp]
+    call sb_push_cstr
+    lea rdi, [rip + ke_sb]
+    mov rsi, r12
+    mov rdx, r13
+    call sb_push
+3:  mov rdi, [rip + ke_sb + SB_ptr]
+    mov rsi, [rip + ke_sb + SB_len]
+    call mem_dup
+    mov [rip + ke_value], rax
+    lea rdi, [rip + ke_sb]
+    call sb_clear
+    lea rdi, [rip + ke_sb]
+    lea rsi, [rip + .Lnone_word]
+    call sb_push_cstr
+    mov rdi, [rbx + KB_when]
+    test rdi, rdi
+    jz 4f
+    call when_source
+    mov r12, rax
+    mov r13, rdx
+    lea rdi, [rip + ke_sb]
+    lea rsi, [rip + .Lsp_when_sp]
+    call sb_push_cstr
+    lea rdi, [rip + ke_sb]
+    mov rsi, r12
+    mov rdx, r13
+    call sb_push
+4:  mov rdi, [rip + ke_sb + SB_ptr]
+    mov rsi, [rip + ke_sb + SB_len]
+    call mem_dup
+    mov [rip + ke_none], rax
+    mov rdi, [rip + ke_old]
+    call strlen
+    mov rcx, rax
+    mov rdx, [rip + ke_old]
+    lea rdi, [rip + .Lbinding_prompt]
+    mov esi, PROMPT_KEY_BINDING
+    call palette_ext_prompt_open
+    EPILOGUE
+
+# Return a raw value's when suffix, to identify matching contexts.
+ke_when:
+    PROLOGUE
+    mov rbx, rdi
+    call strlen
+    mov r12, rax
+    mov rdi, rbx
+    mov rsi, rax
+    lea rdx, [rip + .Lsp_when_sp]
+    mov ecx, 6
+    call str_find
+    test rax, rax
+    js 1f
+    add rax, 6
+    lea rdx, [rbx + r12]
+    add rax, rbx
+    sub rdx, rax
+    EPILOGUE
+1:  lea rax, [rbx + r12]
+    xor edx, edx
+    EPILOGUE
+
+# Upsert at highest user priority, keeping other contexts of the stroke.
+ke_line_set:
+    PROLOGUE 32
+    mov r12, rdi
+    mov r13, rsi
+    call strlen
+    mov [rsp], rax
+    mov rdi, r13
+    call ke_when
+    mov [rsp + 8], rax
+    mov [rsp + 16], rdx
+    xor r14d, r14d
+1:  cmp r14, [rip + g_keylines + VEC_len]
+    jae 4f
+    mov r15, r14
+    shl r15, 5
+    add r15, [rip + g_keylines + VEC_ptr]
+    mov rdi, r12
+    mov rsi, [rsp]
+    mov rdx, [r15]
+    mov rcx, [r15 + 8]
+    call str_eq
+    test eax, eax
+    jz 3f
+    mov rdi, [r15 + 16]
+    call ke_when
+    mov rdi, [rsp + 8]
+    mov rsi, [rsp + 16]
+    mov rcx, rdx
+    mov rdx, rax
+    call str_eq
+    test eax, eax
+    jz 3f
+    mov rdi, [r15]
+    call mem_free
+    mov rdi, [r15 + 16]
+    call mem_free
+    dec qword ptr [rip + g_keylines + VEC_len]
+    mov rcx, [rip + g_keylines + VEC_len]
+    sub rcx, r14
+    shl rcx, 5
+    lea rsi, [r15 + 32]
+    mov rdi, r15
+    rep movsb
+    jmp 4f
+3:  inc r14
+    jmp 1b
+4:  lea rdi, [rip + g_keylines]
+    mov esi, 32
+    call vec_push
+    mov rbx, [rip + g_keylines + VEC_ptr]
+    mov rcx, [rip + g_keylines + VEC_len]
+    dec rcx
+    shl rcx, 2
+    test rcx, rcx
+    jz 6f
+5:  dec rcx
+    mov rax, [rbx + rcx*8]
+    mov [rbx + rcx*8 + 32], rax
+    test rcx, rcx
+    jnz 5b
+6:  mov rdi, r12
+    mov rsi, [rsp]
+    call mem_dup
+    mov [rbx], rax
+    mov rax, [rsp]
+    mov [rbx + 8], rax
+    mov rdi, r13
+    call strlen
+    mov r14, rax
+    mov rdi, r13
+    mov rsi, r14
+    call mem_dup
+    mov [rbx + 16], rax
+    mov [rbx + 24], r14
+    EPILOGUE
+
+FN keys_binding_save
+    PROLOGUE
+    call trim
+    mov r12, rax
+    mov r13, rdx
+    test r13, r13
+    jz 1f
+    mov rdi, r12
+    mov rsi, r13
+    call kb_strokes
+    mov ebx, eax
+    call kb_tmpl_clear
+    test ebx, ebx
+    jz 8f
+1:  mov rdi, r12
+    mov rsi, r13
+    call mem_dup
+    mov r14, rax
+    mov rdi, [rip + ke_old]
+    mov rsi, [rip + ke_none]
+    call ke_line_set
+    test r13, r13
+    jz 2f
+    mov rdi, r14
+    mov rsi, [rip + ke_value]
+    call ke_line_set
+2:  mov rdi, r14
+    call mem_free
+    call config_save
+    call keys_reload
+    mov eax, 1
+    EPILOGUE
+8:  lea rdi, [rip + .Lbinding_invalid]
+    call app_toast
+    xor eax, eax
+    EPILOGUE
+
+# FN keys_list(add fn(label, len, detail, binding)): every binding that is not refused, for the
 #   Keyboard Shortcuts list: "Ctrl+K Ctrl+C  Toggle Comment" and "source · when ... · shadowed by
 #   ..."; the strings live until the next list or reload
 FN keys_list
@@ -1934,6 +2243,10 @@ FN keys_list
     lea rax, [rip + none_cmd]
     cmp [r12 + KB_cmd], rax
     je 3b
+    mov rdi, r12
+    call kb_shadow
+    test rax, rax
+    jnz 3b                      # show the effective binding after saving an override
     # the label
     lea rdi, [rip + keybuf]
     mov rsi, r12
@@ -2000,7 +2313,7 @@ FN keys_list
     mov rdi, r13
     mov rsi, r15
     mov rdx, r14
-    mov rcx, [r12 + KB_cmd]
+    mov rcx, r12                # exact binding and context; valid until reload
     call [rsp]
     jmp 3b
 9:  EPILOGUE
@@ -2199,6 +2512,10 @@ builtin_chords:
 .Lk_unfold_all: .asciz "ctrl+k ctrl+j"
 .Lc_select_theme: .asciz "select_theme"
 .Lk_select_theme: .asciz "ctrl+k ctrl+t"
+.Lterminal_focus: .asciz "terminalFocus"
+.Lterminal_selection: .asciz "terminalFocus && terminalHasSelection"
+.Lbinding_prompt: .asciz "Press shortcut; Enter: save, Backspace: clear, F2: type name"
+.Lbinding_invalid: .asciz "Invalid shortcut. Use a key combination, Shift, or a two-key chord."
 # linux: / mac: / windows: before a binding's strokes: 1 for this system
 sys_prefixes:
 .ifdef MACOS
@@ -2345,6 +2662,9 @@ g_commands:
     COMMAND command_palette, "Command Palette", cmd_command_palette, "ctrl+shift+p F1"
     COMMAND keyboard_shortcuts, "Keyboard Shortcuts", cmd_keyboard_shortcuts, ""
     COMMAND select_file_icon_theme, "Select File Icon Theme", cmd_select_file_icon_theme, ""
+    # Context-specific clipboard records precede the editor's general bindings.
+    COMMAND terminal_copy, "Terminal: Copy Selection", cmd_term_copy, "ctrl+shift+c"
+    COMMAND terminal_paste, "Terminal: Paste", cmd_term_paste, "ctrl+shift+v shift+Insert"
     COMMAND new_file, "New File", cmd_new_file, "ctrl+n"
     COMMAND toggle_side_diff, "Git: Toggle Side-by-Side Comparison", cmd_toggle_side_diff, ""
     COMMAND toggle_chinese, "Input: Toggle Chinese Pinyin", cmd_toggle_chinese, "ctrl+alt+space"

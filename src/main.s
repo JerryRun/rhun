@@ -112,6 +112,8 @@ FN main
     je 2f
     mov dword ptr [rip + g_remote_window], 1
 2:  call app_init
+    # Establish private input ownership before a native window can enable its IME.
+    call fcitx_start
     cmp dword ptr [rip + opt_headless], 0
     jne .Lm_headless
     # a window not started from a terminal: the login shell tells its environment (uproc.s) while
@@ -160,7 +162,6 @@ FN main
     mov esi, [rip + opt_h]
     call headless_init
 .Lm_open:
-    call fcitx_start
     call open_initial
     mov rdi, [rip + opt_control]
     test rdi, rdi

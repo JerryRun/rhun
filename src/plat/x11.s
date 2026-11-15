@@ -424,7 +424,7 @@ x_message:
     jmp .Lxm_ret
 .Lxm_key:
     # an input method takes key presses first and sends back the ones it does not use (xim.s)
-    call fcitx_active
+    call fcitx_owns_input
     test eax, eax
     jnz .Lxm_private_key
     mov rdi, rbx
@@ -2223,6 +2223,7 @@ x_resize_fb:
 # x_draw(): render and PutImage (one request with BIG-REQUESTS, strips otherwise)
 x_draw:
     PROLOGUE 48
+    call xim_sync
     mov rdi, [rip + fbuf]
     mov esi, [rip + fb_w]
     mov edx, [rip + fb_h]

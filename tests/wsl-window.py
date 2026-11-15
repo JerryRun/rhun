@@ -72,12 +72,12 @@ def main():
             ps = r'''
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-Add-Type -AssemblyName System.Windows.Forms
 Add-Type @'
 using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public static class WindowTest {
+ [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  public delegate bool Callback(IntPtr h,IntPtr p);
  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left,Top,Right,Bottom; }
  [DllImport("user32.dll")] public static extern bool EnumWindows(Callback cb,IntPtr p);
@@ -86,7 +86,6 @@ public static class WindowTest {
  [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int c);
- [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h,IntPtr z,int x,int y,int w,int ht,uint f);
  [StructLayout(LayoutKind.Sequential)] public struct Point { public int X,Y; }
  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h,ref Point p);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
@@ -94,6 +93,8 @@ public static class WindowTest {
  [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr extra);
 }
 '@
+[void][WindowTest]::SetThreadDpiAwarenessContext([IntPtr](-4))
+Add-Type -AssemblyName System.Windows.Forms
 $script:target=[IntPtr]::Zero
 $script:title=''
 $find=[WindowTest+Callback]{param($h,$p)
@@ -109,7 +110,7 @@ do {
  Start-Sleep -Milliseconds 100
 } while($script:target -eq [IntPtr]::Zero -or $script:title.Contains('[rhun-wsl-'))
 $h=$script:target
-$a=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$a=[System.Windows.Forms.Screen]::FromHandle($h).WorkingArea
 for($i=0;$i -lt 3;$i++) {
  [void][WindowTest]::ShowWindow($h,9)
  $until=[DateTime]::UtcNow.AddSeconds(5)
@@ -118,8 +119,6 @@ for($i=0;$i -lt 3;$i++) {
   if([DateTime]::UtcNow -gt $until){throw 'restore did not apply'}
  }
  Start-Sleep -Milliseconds 300
- [void][WindowTest]::SetWindowPos($h,[IntPtr]::Zero,$a.Left+200,$a.Top+150,1000,700,0x14)
- Start-Sleep -Milliseconds 250
  [void][WindowTest]::ShowWindow($h,3)
  $until=[DateTime]::UtcNow.AddSeconds(8)
  do {

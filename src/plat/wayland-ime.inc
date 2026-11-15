@@ -5,16 +5,21 @@ wl_ime_sync:
     PROLOGUE 16
     cmp dword ptr [rip + id_ti], 0
     jne .Lims_done
-    call fcitx_active
+    call fcitx_owns_input
     test eax, eax
     jz .Lims_native
     cmp dword ptr [rip + ime_requested], 0
     je .Lims_done
     mov dword ptr [rip + ime_requested], 0
     mov dword ptr [rip + wl_ime_entered], 0
+    MSG [rip + wl_ime_id], 3   # hide_input_panel: withdraw the host candidate UI
+    END
     MSG [rip + wl_ime_id], 1
     ARG [rip + id_seat]
     END
+    call wl_ime_commit_state
+    mov eax, [rip + ime_serial]
+    mov [rip + ime_floor], eax
     jmp .Lims_done
 .Lims_native:
     cmp dword ptr [rip + id_text_manager], 0
@@ -158,7 +163,7 @@ FN wl_ime_event
     mov ebx, edi
     mov r12, rsi
     mov r13, rdx
-    call fcitx_active
+    call fcitx_owns_input
     test eax, eax
     jnz .Lime_event_done
     test ebx, ebx
