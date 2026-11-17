@@ -22,6 +22,8 @@ sd_head: .ascii "HEAD (read only)"
 sd_head_end:
 sd_work: .ascii "Working tree (editable)"
 sd_work_end:
+sd_tab_arrow: .ascii "\342\206\222"
+sd_space_dot: .ascii "\302\267"
 .text
 
 FN side_base_free
@@ -466,18 +468,16 @@ FN git_side_draw
     mov rdi, [rbx + DOC_gbase]
     mov rsi, [rsp + 40]
     call doc_line_text
-    mov rcx, rax
-    mov r8, rdx
-    lea rdi, [rip + g_face_code]
-    mov esi, [rsp]
+    mov rcx, rdx
+    mov rdx, rax
+    mov edi, [rsp]
     mov eax, [rip + g_cw]
     imul eax, 7
-    add esi, eax
-    sub esi, [rbx + DOC_scrollx]
-    mov edx, r15d
-    add edx, [rip + g_base]
-    COLOR r9d, T_FG
-    call text_draw
+    add edi, eax
+    sub edi, [rbx + DOC_scrollx]
+    mov esi, r15d
+    add esi, [rip + g_base]
+    call side_draw_text
 4:  inc r14
     add r15d, [rip + g_lh]
     jmp .Lsd_left
@@ -625,4 +625,79 @@ FN git_side_draw
 .Lsd_plain:
     call side_leave
     xor eax, eax
+    EPILOGUE
+
+# side_draw_text(x, baseline, ptr, len): baseline code uses the editor's cell grid.
+# Tabs advance to the next tab stop, never through the font's missing-control glyph.
+side_draw_text:
+    PROLOGUE 32
+    mov [rsp], edi             # x of column zero, including horizontal scroll
+    mov [rsp + 4], esi         # baseline
+    mov rbx, rdx
+    mov r12, rcx
+    xor r14d, r14d             # visual column
+.Lsd_text_next:
+    test r12, r12
+    jz .Lsd_text_done
+    mov r15d, r14d
+    imul r15d, [rip + g_cw]
+    add r15d, [rsp]
+    cmp r15d, [rip + g_cv + CV_cx1]
+    jge .Lsd_text_done
+    cmp byte ptr [rbx], 9
+    jne .Lsd_text_space
+    mov eax, r14d
+    xor edx, edx
+    div dword ptr [rip + g_tab_width]
+    add r14d, [rip + g_tab_width]
+    sub r14d, edx
+    cmp dword ptr [rip + cfg_whitespace], 0
+    je .Lsd_text_blank
+    lea rcx, [rip + sd_tab_arrow]
+    mov r8d, 3
+    jmp .Lsd_text_mark
+.Lsd_text_space:
+    cmp byte ptr [rbx], ' '
+    jne .Lsd_text_glyph
+    inc r14d
+    cmp dword ptr [rip + cfg_whitespace], 0
+    je .Lsd_text_blank
+    lea rcx, [rip + sd_space_dot]
+    mov r8d, 2
+.Lsd_text_mark:
+    lea rdi, [rip + g_face_code]
+    mov esi, r15d
+    mov edx, [rsp + 4]
+    COLOR r9d, T_GUIDE
+    call text_draw
+.Lsd_text_blank:
+    inc rbx
+    dec r12
+    jmp .Lsd_text_next
+.Lsd_text_glyph:
+    mov rdi, rbx
+    mov rsi, r12
+    call utf8_decode
+    mov r13d, eax
+    mov [rsp + 8], rdx
+    mov eax, [rip + g_cw]
+    lea eax, [r15 + rax*2]
+    cmp eax, [rip + g_cv + CV_cx0]
+    jle .Lsd_text_advance
+    lea rdi, [rip + g_face_code]
+    mov esi, r15d
+    mov edx, [rsp + 4]
+    mov rcx, rbx
+    mov r8, [rsp + 8]
+    COLOR r9d, T_FG
+    call text_draw
+.Lsd_text_advance:
+    mov edi, r13d
+    call cp_width
+    add r14d, eax
+    mov rax, [rsp + 8]
+    add rbx, rax
+    sub r12, rax
+    jmp .Lsd_text_next
+.Lsd_text_done:
     EPILOGUE
