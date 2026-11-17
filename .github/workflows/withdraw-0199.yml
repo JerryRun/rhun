@@ -1,0 +1,30 @@
+name: withdraw old v0.19.9 release
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/withdraw-0199.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: withdraw-old-v0.19.9
+
+jobs:
+  withdraw:
+    if: github.repository == 'JerryRun/rhun'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify the original release tag
+        shell: bash
+        run: test "$(git rev-parse 'v0.19.9^{}')" = a5e6fd918415d60a278ffc0e03f8abd6ab5c472c
+      - name: Withdraw the old release and its assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view v0.19.9 --json tagName,isDraft,url
+          gh release delete v0.19.9 --yes
