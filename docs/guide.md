@@ -42,12 +42,12 @@ saved to Settings. Ctrl+B and Ctrl+Shift+A bring a panel back, and opening a fol
 shows both again. The first file's folder becomes the project: the explorer shows it, and new
 files and terminals start there. That folder is not remembered as the last project, and its saved session is
 neither restored nor overwritten; open the folder itself (Open Folder) to bring its session back and
-make it the project you return to. A window without a project, such as `rhun --empty`, takes up the
+remember it in the recent projects menu. A window without a project, such as `rhun --empty`, takes up the
 folder of the first file opened in it the same way. `rhun --wait file` (for programs that wait for
 an editor) opens just the file. The window comes to the foreground. If rhun is already running on
 macOS, Finder opens files as tabs in that window and brings it forward, keeping unsaved edits.
-Opening a folder still restores that folder's session; starting without a path can restore the last
-project.
+Opening a folder still restores that folder's session; starting without a path opens the current
+directory.
 Use `rhun --empty` to start with an empty window. Updating and restarting preserves standalone file tabs,
 including image tabs, and keeps an empty window empty.
 
@@ -311,7 +311,9 @@ rhun [folder] [files...]
 
 Without files the previous session of the selected project is reopened. The project menu in the title bar opens another folder (see [Folders and files](#folders-and-files)).
 
-**Reopen last project** in Settings > Files is on by default. When launching from a desktop shortcut, the Dock, or without path arguments, rhun reopens the project you closed with. The config key is `restore_project = true` under `[files]`. Explicit file or folder arguments take precedence. If this setting is off, no project is saved yet, or the saved folder no longer exists, rhun uses the current directory (usually your home folder when launched from the desktop). This preference is independent of **Restore open files**.
+Without path arguments, rhun opens the process's current directory, including when launched from a desktop shortcut or the Dock (where the launcher chooses the current directory). If that directory contains exactly one `.rhun-workspace` file, rhun opens its folders and settings as a named workspace. A single explicit folder, including `rhun .`, follows the same rule. With multiple workspace definitions, or an invalid definition, rhun opens the directory normally; pass a workspace file explicitly to choose one. Explicit files, multiple folders and `--empty` keep their usual behavior.
+
+**Reopen last project** in Settings > Files is off by default. Enable it (`restore_project = true` under `[files]`) to retain the previous behavior: without path arguments, reopen the last project instead of the current directory. If no saved project exists or it has been deleted, rhun falls back to the current directory and its workspace definition. Existing `restore_project = true` configurations keep the previous behavior. **Restore open files** independently controls session restoration for the selected project.
 
 Hovering a title bar or explorer button for half a second shows its name and, for commands, the
 current shortcut in your platform's notation. Once one is showing, the next button's appears at once.

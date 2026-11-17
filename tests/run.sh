@@ -142,6 +142,7 @@ python3 tests/terminal-tabs.py || fail=1
 python3 tests/terminal-panel.py || fail=1
 python3 tests/panel-layout.py || fail=1
 python3 tests/recent-workspaces.py || fail=1
+python3 tests/startup-directory.py || fail=1
 python3 tests/terminal-keys.py || fail=1
 python3 tests/terminal-links.py || fail=1
 python3 tests/terminals.py || fail=1       # tasks and terminals: programs' tabs, run-as-user approval

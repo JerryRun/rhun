@@ -574,7 +574,7 @@ open_initial:
     jmp 1b
 2:  test r12d, r12d
     jnz 3f
-    # With no paths, optionally reopen the last project; explicit paths always win.
+    # With no paths, open the current directory; explicit paths always win.
     cmp qword ptr [rip + g_start_paths + VEC_len], 0
     je 20f
     # explicit files are ordinary tabs without a project, and a quick edit: no explorer or agents
@@ -590,12 +590,17 @@ open_initial:
     mov rdi, rax
     call app_set_project
     jmp 3f
-21: # bare launch: the current directory is the project
+21:
+    # A single workspace definition in the current directory takes precedence.
     lea rdi, [rip + cwd]
     mov esi, 4096
     SYS SYS_getcwd
     test rax, rax
     js 3f
+    lea rdi, [rip + cwd]
+    call workspace_open_directory
+    test eax, eax
+    jnz 3f
     lea rdi, [rip + cwd]
     call app_set_project
 3:  call ws_recover             # wsedit: workspace edits a crash cut short are put back first
@@ -624,6 +629,13 @@ open_initial:
     call workspace_add_ui
     jmp 42f
 40: mov r13d, 1
+    # `rhun .` and a single explicit folder follow the same discovery rule.
+    cmp qword ptr [rip + g_start_paths + VEC_len], 1
+    jne 41f
+    mov rdi, r14
+    call workspace_open_directory
+    test eax, eax
+    jnz 42f
 41: mov rdi, r14
     call app_open_path
 42: inc rbx

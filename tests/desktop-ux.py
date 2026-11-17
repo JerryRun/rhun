@@ -43,9 +43,16 @@ with tempfile.TemporaryDirectory(prefix='rhun-desktop-') as temporary:
     configure()
     run([project, file])
     output = run()
+    check_project(output, other.name)
+    assert 'tabs=0 ' in output, output
+    print('ok   desktop/default-current-directory')
+
+    configure(enabled=True)
+    run([project, file])
+    output = run()
     check_project(output, project.name)
     assert 'tabs=1 ' in output, output
-    print('ok   desktop/default-restore-project-and-tabs')
+    print('ok   desktop/opt-in-restore-project-and-tabs')
 
     check_project(run([other]), other.name)
     run([project])
@@ -110,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix='rhun-desktop-') as temporary:
     print('ok   desktop/opening-the-file-folder-adopts-it')
     run([project, file])
 
-    configure(tabs=False)
+    configure(enabled=True, tabs=False)
     run([project])
     output = run()
     check_project(output, project.name)
@@ -130,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix='rhun-desktop-') as temporary:
     print('ok   desktop/disabled-missing-empty-first-launch')
 
     # A project switch is remembered immediately, including without saved tabs.
-    configure(tabs=False)
+    configure(enabled=True, tabs=False)
     run([other], [f'open {project.as_posix()}', 'quit'])
     check_project(run(), project.name)
     print('ok   desktop/switched-project')

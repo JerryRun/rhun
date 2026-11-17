@@ -208,7 +208,8 @@ class Folders(lifecycle.Base):
         wsfile = self.app / 'unrelated.rhun-workspace'
         original = f'[folders]\npath = {self.lib}\n'
         wsfile.write_text(original)
-        out = self.run_ws([self.app], [*self.select_new_workspace_folder(), 'print-palette',
+        # Open the plain folder after startup: a single startup folder now discovers its definition.
+        out = self.run_ws(['--empty'], [f'open {self.app}', *self.select_new_workspace_folder(), 'print-palette',
             'key Escape', 'print-folders', 'print-workspace'])
         self.assertTrue(any(l.startswith('> Save Workspace in ') for l in out), out)
         self.assertEqual([f['name'] for f in self.folders(out)], ['proj'])

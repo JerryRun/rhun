@@ -764,6 +764,55 @@ ws_is_file:
     call str_ends
     EPILOGUE
 
+# FN workspace_open_directory(path) -> eax 1 when a unique definition opened successfully.
+# Startup only: never choose arbitrarily between multiple definitions, and leave the caller
+# to open the directory normally when its definition is missing, unreadable or invalid.
+FN workspace_open_directory
+    PROLOGUE 32
+    call ws_path_clean
+    mov [rsp], rax
+    mov qword ptr [rsp + 8], 0  # owned candidate path
+    mov qword ptr [rsp + 16], 0 # matching files, capped at two
+    mov rdi, rax
+    lea rsi, [rip + ws_startup_definition_cb]
+    mov rdx, rsp
+    call vfs_dir_each
+    xor ebx, ebx
+    cmp qword ptr [rsp + 16], 1
+    jne 1f
+    mov rdi, [rsp + 8]
+    call workspace_open_file
+    cmp qword ptr [rip + g_ws_file], 0
+    setne bl
+1:  mov rdi, [rsp + 8]
+    call mem_free
+    mov rdi, [rsp]
+    call mem_free
+    mov eax, ebx
+    EPILOGUE
+
+# ctx = {directory, candidate, count}; only direct child files qualify.
+ws_startup_definition_cb:
+    PROLOGUE
+    test edx, edx
+    jnz 9f
+    mov rbx, rdi
+    cmp qword ptr [rbx + 16], 2
+    jae 9f
+    mov r12, rsi
+    mov rdi, rsi
+    call ws_is_file
+    test eax, eax
+    jz 9f
+    inc qword ptr [rbx + 16]
+    cmp qword ptr [rbx + 16], 1
+    jne 9f
+    mov rdi, [rbx]
+    mov rsi, r12
+    call path_join
+    mov [rbx + 8], rax
+9:  EPILOGUE
+
 # FN workspace_open_file(path) -> eax 1 when it was a workspace file: its first folder becomes the
 # primary (the window takes it up as Open Folder does), the others join it, and its settings apply
 FN workspace_open_file

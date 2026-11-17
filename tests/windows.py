@@ -192,7 +192,7 @@ with tempfile.TemporaryDirectory(prefix='rhun-windows-', dir=args.temp_dir or OU
         check('clipboard/native-failures', lambda: subprocess.run(
             [sys.executable, str(ROOT / 'tests/windows-clipboard-faults.py')], check=True))
         for name in ('settings-ui', 'appearance', 'editor-matrix', 'stress', 'splitter', 'scroll-sensitivity',
-                     'file-launch', 'readonly-save', 'field-blink', 'window-focus',
+                     'file-launch', 'startup-directory', 'readonly-save', 'field-blink', 'window-focus',
                      'new-tab', 'tab-view', 'tab-drag', 'tab-pin', 'settings-search',
                      'multicursor', 'multicursor-vim'):
             check('ui/' + name, lambda name=name: subprocess.run(
