@@ -44,7 +44,8 @@ class StartupDirectory(unittest.TestCase):
                                      'print-folders', 'print-state', 'quit', '']), encoding='utf-8')
         result = subprocess.run([str(EXE), *map(str, paths), '--headless', '1000x700',
                                  '--scale', '1', '--script', str(script)], cwd=cwd or self.current,
-                                env=self.env, capture_output=True, text=True, timeout=20)
+                                env=self.env, capture_output=True, text=True, encoding='utf-8',
+                                timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.replace('\\', '/')
 
