@@ -2851,6 +2851,7 @@ g_commands:
     COMMAND git_push, "Git: Push", cmd_git_push, ""
     COMMAND git_sync, "Git: Sync", cmd_git_sync, ""
     COMMAND git_fetch, "Git: Fetch", cmd_git_fetch, ""
+    COMMAND git_switch_branch, "Git: Switch Branch", cmd_git_switch_branch, ""
     COMMAND git_stage_all, "Git: Stage All Changes", cmd_git_stage_all, ""
     COMMAND git_unstage_all, "Git: Unstage All Changes", cmd_git_unstage_all, ""
     COMMAND git_discard_all, "Git: Discard All Changes", cmd_git_discard_all, ""

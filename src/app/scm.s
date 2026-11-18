@@ -11,6 +11,7 @@
 .equ ID_SCM_AI, ID_SCM + 6
 .equ ID_SCM_RESET, ID_SCM + 7
 .equ ID_SCM_TITLE, ID_SCM + 8           # extensions' header buttons (menu_scm_title_buttons): 8 .. 12
+.equ ID_SCM_BRANCH, ID_SCM + 13
 .equ ID_SCM_GROUP, ID_SCM + 0x10        # + group * 4 + button
 .equ ID_SCM_FILE, ID_SCM + 0x100        # + file * 4 + button
 .equ MAX_LINES, 10                      # of the message shown at once
@@ -35,6 +36,7 @@
 .equ S_CLEAN, 15
 .equ S_CLEAN_ALL, 16
 .equ S_RESET_HARD, 17
+.equ S_SWITCH, 18
 
 # operations, one at a time
 .equ OP_NONE, 0
@@ -46,6 +48,7 @@
 .equ OP_PUBLISH, 6
 .equ OP_INDEX, 7                        # stage, unstage, discard
 .equ OP_RESET, 8
+.equ OP_SWITCH, 9
 
 # the button under the message
 .equ MB_NONE, 0                         # Commit, with nothing to commit
@@ -89,6 +92,10 @@ err: .zero 256                          # what went wrong last
 op_path: .zero 4096
 question: .zero 4200
 reset_root: .zero 4096                  # the repository named by the reset confirmation
+branch_root: .zero 4096                 # the repository named by the branch picker
+branch_names: .zero SB_SIZE             # NUL-terminated local names, owned while the list is open
+switch_name: .zero SB_SIZE              # the chosen name stays stable during the operation
+branch_loading: .long 0
 .data
 list_ver: .long -1                      # g_git_ver of the list
 u_ver: .long -1                         # g_git_ver of ubuf
@@ -150,6 +157,140 @@ FN cmd_git_fetch
     mov edi, OP_FETCH
     lea rsi, [rip + seq_fetch]
     jmp start
+
+# Open a searchable list for the selected repository, without blocking the UI on Git.
+FN cmd_git_switch_branch
+    PROLOGUE
+    call ready
+    test eax, eax
+    jz 9f
+    cmp dword ptr [rip + branch_loading], 0
+    jne 9f
+    cmp qword ptr [rip + g_git_rootlen], 4096
+    jae 9f
+    lea rdi, [rip + branch_root]
+    mov rsi, [rip + g_git_root]
+    call cstr_copy
+    lea rdi, [rip + .Lbranches_loading]
+    call palette_git_branches_open
+    lea rdi, [rip + branch_names]
+    call sb_clear
+    lea rdi, [rip + args_branches]
+    lea rsi, [rip + on_branches]
+    xor edx, edx
+    xor ecx, ecx
+    xor r8d, r8d
+    call git_run_all
+    mov [rip + branch_loading], eax
+    test eax, eax
+    jnz 9f
+    call palette_git_branches_close
+    lea rdi, [rip + .Le_failed]
+    call app_toast
+9:  EPILOGUE
+
+# on_branches(ctx, ptr, len, status): HEAD marker, TAB, literal name, LF per local ref.
+on_branches:
+    PROLOGUE
+    mov r12, rsi
+    mov r13, rdx
+    mov ebx, ecx
+    mov dword ptr [rip + branch_loading], 0
+    call palette_git_branches_showing
+    test eax, eax
+    jz 9f
+    test ebx, ebx
+    jz 1f
+    mov rdi, r12
+    mov rsi, r13
+    lea rdx, [rip + err]
+    call pick_error
+    call palette_git_branches_close
+    lea rdi, [rip + err]
+    call app_toast
+    jmp 9f
+1:  lea rdi, [rip + branch_names]
+    mov rsi, r12
+    mov rdx, r13
+    call sb_push
+    lea rdi, [rip + branch_names]
+    xor esi, esi
+    call sb_push_byte
+    mov rbx, [rip + branch_names + SB_ptr]
+    lea r14, [rbx + r13]
+    xor r12d, r12d              # number of branches
+2:  cmp rbx, r14
+    jae 7f
+    mov r15, rbx
+3:  cmp r15, r14
+    jae 4f
+    cmp byte ptr [r15], 10
+    je 4f
+    inc r15
+    jmp 3b
+4:  mov byte ptr [r15], 0
+    lea rax, [rbx + 2]
+    cmp rax, r15
+    jae 6f
+    cmp byte ptr [rbx + 1], 9
+    jne 6f
+    xor edx, edx
+    cmp byte ptr [rbx], '*'
+    jne 5f
+    lea rdx, [rip + .Lbranch_current]
+5:  add rbx, 2
+    mov rdi, rbx
+    mov rsi, r15
+    sub rsi, rbx
+    mov rcx, rbx
+    sub rcx, [rip + branch_names + SB_ptr]
+    call palette_results_add
+    inc r12d
+6:  lea rbx, [r15 + 1]
+    jmp 2b
+7:  lea rdi, [rip + .Lbranches_pick]
+    test r12d, r12d
+    jnz 8f
+    lea rdi, [rip + .Lbranches_empty]
+8:  call palette_git_branches_label
+    call palette_choose_ready
+    mov dword ptr [rip + g_dirty], 1
+9:  EPILOGUE
+
+# The palette has closed. Never force, stash or discard edits to make a switch succeed.
+FN scm_branch_chosen
+    PROLOGUE
+    mov rbx, rdi
+    cmp rbx, [rip + branch_names + SB_len]
+    jae 9f
+    mov rdi, [rip + g_git_root]
+    test rdi, rdi
+    jz 9f
+    lea rsi, [rip + branch_root]
+    call strcmp_eq
+    test eax, eax
+    jz 9f
+    call ready
+    test eax, eax
+    jz 9f
+    add rbx, [rip + branch_names + SB_ptr]
+    mov rdi, rbx
+    lea rsi, [rip + g_branch]
+    call strcmp_eq
+    test eax, eax
+    jnz 9f
+    lea rdi, [rip + switch_name]
+    call sb_clear
+    lea rdi, [rip + switch_name]
+    mov rsi, rbx
+    call sb_push_cstr
+    lea rdi, [rip + switch_name]
+    xor esi, esi
+    call sb_push_byte
+    mov edi, OP_SWITCH
+    lea rsi, [rip + seq_switch]
+    call op_begin
+9:  EPILOGUE
 
 # pushing a branch without an upstream publishes it, to its remote
 FN cmd_git_push
@@ -388,6 +529,8 @@ FN scm_paste
 # scm_reset(): another repository
 FN scm_reset
     push rbx
+    call palette_git_branches_close
+    mov dword ptr [rip + branch_loading], 0
     call ai_cancel_generation
     mov dword ptr [rip + op], OP_NONE
     mov dword ptr [rip + list_ver], -1
@@ -1018,7 +1161,15 @@ run_step:
     mov [r13 + 8], rax
     add r13, 16
     jmp 8f
-7:  cmp ebx, S_ADD
+7:  cmp ebx, S_SWITCH
+    jne 70f
+    mov rax, [rip + switch_name + SB_ptr]
+    mov [r13], rax
+    lea rax, [rip + .Ldashdash]
+    mov [r13 + 8], rax          # branch mode only: no path checkout or remote guessing
+    add r13, 16
+    jmp 8f
+70: cmp ebx, S_ADD
     je 71f
     cmp ebx, S_RESET
     je 71f
@@ -1160,7 +1311,10 @@ op_finish:
     mov edi, 3
 1:  call git_refresh
     cmp ebx, OP_RESET
+    je 3f
+    cmp ebx, OP_SWITCH
     jne 2f
+3:
     call explorer_refresh
 2:
     mov dword ptr [rip + g_dirty], 1
@@ -1691,7 +1845,39 @@ draw_branch:
     mov r9d, ID_SCM_TITLE
     call menu_scm_title_buttons
     mov [rsp], eax              # their width
-3:
+3:  # The branch row is a picker trigger; extension buttons keep their own hit areas.
+    cmp dword ptr [rip + op], OP_NONE
+    jne .Lbranch_draw
+    mov ecx, [rip + in_w]
+    sub ecx, [rsp]
+    mov edi, ID_SCM_BRANCH
+    mov esi, [rip + in_x]
+    mov edx, r13d
+    M r8d, MI_32
+    call ui_btn
+    mov [rsp + 4], eax
+    test eax, UB_HOVER
+    jz .Lbranch_click
+    mov edi, [rip + in_x]
+    mov esi, r13d
+    mov edx, [rip + in_w]
+    sub edx, [rsp]
+    M ecx, MI_32
+    COLOR r8d, T_HOVER
+    call gfx_fill
+.Lbranch_click:
+    mov edi, ID_SCM_BRANCH
+    mov esi, [rip + in_x]
+    mov edx, r13d
+    mov ecx, [rip + in_w]
+    sub ecx, [rsp]
+    M r8d, MI_32
+    mov r9d, [rsp + 4]
+    call note_tip
+    test eax, UB_CLICK
+    jz .Lbranch_draw
+    call cmd_git_switch_branch
+.Lbranch_draw:
     M r15d, MI_32
     mov edi, IC_BRANCH
     mov esi, [rip + in_x]
@@ -1716,6 +1902,7 @@ draw_branch:
     sub eax, r12d
     sub eax, [rsp]
     sub eax, [rip + g_mt + 4*MI_8]
+    sub eax, [rip + g_mt + 4*MI_ICON]
     mov ecx, 1
     cmp eax, ecx
     cmovl eax, ecx
@@ -1735,6 +1922,15 @@ draw_branch:
     add rsp, 16
     add eax, [rip + g_mt + 4*MI_8]
     mov r12d, eax
+    mov edi, IC_CHEV_D
+    mov esi, r12d
+    mov edx, r13d
+    M ecx, MI_ICON
+    mov r8d, r15d
+    COLOR r9d, T_MUTED
+    call ui_icon_center
+    add r12d, [rip + g_mt + 4*MI_ICON]
+    add r12d, [rip + g_mt + 4*MI_8]
     # "→ origin/main", or what it is instead
     lea rdi, [rip + lbl]
     call sb_clear
@@ -2496,6 +2692,11 @@ note_tip:
 # tip_for(id) -> rax the tooltip of a button that takes clicks: the git commands it runs, or 0
 tip_for:
     PROLOGUE
+    lea rax, [rip + .Lbranches_pick]
+    cmp edi, ID_SCM_BRANCH
+    jne 0f
+    EPILOGUE
+0:
     xor esi, esi                # the file, for a file's buttons
     cmp edi, ID_SCM_FILE
     jae 5f
@@ -2859,6 +3060,11 @@ FN scm_dump_files
 .Lt_fetched: .asciz "Fetched"
 .Lt_published: .asciz "Branch published"
 .Lt_reset: .asciz "All changes reset"
+.Lt_switched: .asciz "Branch switched"
+.Lbranches_loading: .asciz "Loading local branches..."
+.Lbranches_pick: .asciz "Switch local branch"
+.Lbranches_empty: .asciz "No local branches"
+.Lbranch_current: .asciz "Current branch"
 .Lq_reset: .asciz "Reset all changes?"
 .Lq_reset_text: .asciz "Staged and unstaged changes will be lost. New files and folders will be deleted."
 .Lb_reset: .asciz "Reset All Changes"
@@ -2895,6 +3101,7 @@ FN scm_dump_files
 .Lw_fetch: .asciz "Fetching\342\200\246"
 .Lw_publish: .asciz "Publishing\342\200\246"
 .Lw_reset: .asciz "Resetting\342\200\246"
+.Lw_switch: .asciz "Switching branch\342\200\246"
 .Lr_pull: .asciz "Pull"
 .Lr_push: .asciz "Push"
 .Lr_fetch: .asciz "Fetch"
@@ -2918,6 +3125,7 @@ FN scm_dump_files
 .Ln_publishing: .asciz "publishing"
 .Ln_staging: .asciz "staging"
 .Ln_resetting: .asciz "resetting"
+.Ln_switching: .asciz "switching"
 .Lorigin: .ascii "origin"
 # git's arguments
 .Ladd: .asciz "add"
@@ -2951,6 +3159,11 @@ FN scm_dump_files
 .Lothers: .asciz "--others"
 .Lexclude_std: .asciz "--exclude-standard"
 .Lnul_z: .asciz "-z"
+.Lfor_each_ref: .asciz "for-each-ref"
+.Lbranch_sort: .asciz "--sort=-committerdate"
+.Lbranch_format: .asciz "--format=%(HEAD)%09%(refname:lstrip=2)"
+.Llocal_refs: .asciz "refs/heads/"
+.Lno_guess: .asciz "--no-guess"
 .Ltip_git: .asciz "git"
 .Ltip_and: .asciz " && "
 .Ltip_message: .asciz " < message"
@@ -2971,6 +3184,8 @@ args_push: .quad .Lpush, 0
 args_remote: .quad .Lremote, 0
 args_publish: .quad .Lpush, .Ldash_u, 0
 args_fetch: .quad .Lfetch, 0
+args_branches: .quad .Lfor_each_ref, .Lbranch_sort, .Lbranch_format, .Llocal_refs, 0
+args_switch: .quad .Lcheckout, .Lno_guess, 0
 args_untracked: .quad .Lls_files, .Lothers, .Lexclude_std, .Lnul_z, 0
 args_add: .quad .Ladd, .Ldash_a, 0
 args_reset: .quad .Lreset, .Ldash_q, 0
@@ -2983,15 +3198,17 @@ args_clean: .quad .Lclean, .Lforce, .Ldash_d, .Ldash_q, 0
 step_args:
     .quad 0, args_add_all, args_commit, args_amend, args_pull_cfg, args_pull, args_push, args_remote
     .quad args_publish, args_fetch, args_add, args_reset, args_reset_all, args_checkout, args_checkout_all
-    .quad args_clean, args_clean, args_reset_hard
+    .quad args_clean, args_clean, args_reset_hard, args_switch
 # by OP_*
 done_toasts:
     .quad 0, 0, .Lt_pulled, .Lt_pushed, .Lt_synced, .Lt_fetched, .Lt_published, 0, .Lt_reset
+    .quad .Lt_switched
 busy_labels:
     .quad 0, .Lw_commit, .Lw_pull, .Lw_push, .Lw_sync, .Lw_fetch, .Lw_publish, 0, .Lw_reset
+    .quad .Lw_switch
 op_names:
     .quad .Ln_none, .Ln_committing, .Ln_pulling, .Ln_pushing, .Ln_syncing, .Ln_fetching, .Ln_publishing
-    .quad .Ln_staging, .Ln_resetting
+    .quad .Ln_staging, .Ln_resetting, .Ln_switching
 # by MB_*
 main_labels:
     .quad .Lm_commit, .Lm_commit, .Lm_commit_all, .Lm_sync, .Lm_publish
@@ -3023,6 +3240,7 @@ seq_push: .byte S_PUSH, 0
 seq_publish: .byte S_REMOTES, S_PUBLISH, 0
 seq_sync: .byte S_PULL_CFG, S_PULL, S_PUSH, 0
 seq_fetch: .byte S_FETCH, 0
+seq_switch: .byte S_SWITCH, 0
 seq_stage: .byte S_ADD, 0
 seq_stage_all: .byte S_ADD_ALL, 0
 seq_unstage: .byte S_RESET, 0

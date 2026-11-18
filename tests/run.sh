@@ -102,6 +102,7 @@ check diff build/diff_test
 check side-alignment build/side_alignment_test
 if [ "$(uname -s)" = Linux ]; then check ime build/ime_test; fi
 python3 tests/side-diff.py || fail=1
+python3 tests/git-branches.py || fail=1
 python3 tests/terminal-splits.py || fail=1
 python3 tests/markdown-preview.py || fail=1
 if [ "$(uname -s)" = Linux ]; then
