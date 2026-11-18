@@ -146,6 +146,13 @@ class RecentWorkspaces(unittest.TestCase):
     def test_recent_menu_keeps_existing_nine_item_limit(self):
         files = [self.workspace(f'team-{i:02}') for i in range(11)]
         self.run_editor(self.other, [f'open {p}' for p in files])
+        # Batched opens can share a filesystem timestamp on CI. Give this ordering fixture
+        # distinct times so the test measures the nine-item limit rather than clock precision.
+        for i, file in enumerate(files):
+            markers = list(self.state.glob(f'*{file.name}.workspace'))
+            self.assertEqual(len(markers), 1)
+            stamp = (i + 1) * 1_000_000_000
+            os.utime(markers[0], ns=(stamp, stamp))
         out = self.run_editor(self.other, self.menu())
         self.assertEqual(out.count(' (Workspace)'), 9)
         self.assertNotIn(self.label(files[0]), out)

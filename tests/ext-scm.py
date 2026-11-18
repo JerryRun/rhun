@@ -368,9 +368,11 @@ class Menus(Base):
                             "sync.when = scmProvider == git\nother.when = scmProvider == 'rhun-tests/hg'\n")
 
     def test_header_buttons_on_gits_source_control(self):
-        # The Source Control sidebar branch row exposes only the matching title action.
-        self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'click 30 54', 'wait 300', 'click 174 120', 'wait 300',
+        # Clicking the branch opens its picker; closing it leaves the matching title action usable.
+        out = self.run_editor(['wait-git', 'cmd git_history', 'wait-git', 'click 30 54', 'wait 300',
+                         'click 174 120', 'wait-git', 'print-palette', 'key Escape',
                          'click 212 120', 'wait-ext tools running', 'wait 300'], exts=self.tools(), drop_waits=True)
+        self.assertIn('choose=Switch local branch', out)
         log = self.fake_log('tools')
         runs = [(l.split()[3], log[i + 1]) for i, l in enumerate(log) if l.startswith('< 0 run tools.')]
         self.assertEqual(runs, [('tools.sync', '| ' + repr(f'scm git {self.proj.as_posix()}\n'))], log)
