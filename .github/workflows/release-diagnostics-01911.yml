@@ -1,0 +1,38 @@
+name: release-diagnostics-01911
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/release-diagnostics-01911.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Read failed Windows release log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/JerryRun/rhun/actions/jobs/134663729220/logs > /tmp/rhun-failed.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          lines = Path('/tmp/rhun-failed.log').read_text().splitlines()
+          hits = [i for i, line in enumerate(lines) if re.search(r'FAIL:|ERROR:|AssertionError|FAILED \(|Segmentation fault|^.*\bFAIL\s', line)]
+          ends = -1
+          count = 0
+          for i in hits:
+              if i <= ends:
+                  continue
+              ends = min(i + 18, len(lines))
+              text = '\n'.join(lines[max(0, i - 3):ends])
+              text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Windows release failure::' + text[:12000])
+              count += 1
+              if count == 10:
+                  break
+          if not hits:
+              text = '\n'.join(lines[-50:]).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::error title=Windows release log tail::' + text[:12000])
+          PY
