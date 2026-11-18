@@ -27,7 +27,7 @@ function Key([string]$text, [string]$key) {
     if ($text -match "(?m)^$key *= *([^\r\n]*)") { return $Matches[1].Trim() }
     return ''
 }
-function Gh { & gh @args 2>&1 | Out-String }
+function Invoke-GitHubCli { & gh.exe @args 2>&1 | Out-String }
 
 if ($env:RHUN_SX_STEP -eq 'prepare') {
     $dir = $env:RHUN_SX_DIR
@@ -101,10 +101,10 @@ if ($env:RHUN_SX_STEP -eq 'prepare') {
         Write-Output "warn .github/workflows/release.yml does not attest the archives (actions/attest-build-provenance): the index's check needs that attestation, so add it (as the templates have it) and release again"
     }
     $login = '-'
-    if (Get-Command gh -ErrorAction SilentlyContinue) {
-        & gh auth status 2>&1 | Out-Null
+    if (Get-Command gh.exe -CommandType Application -ErrorAction SilentlyContinue) {
+        & gh.exe auth status 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            $l = (Gh api user --jq .login).Trim()
+            $l = (Invoke-GitHubCli api user --jq .login).Trim()
             if ($LASTEXITCODE -eq 0 -and $l -match '^[A-Za-z0-9][A-Za-z0-9-]*$') { $login = $l }
         }
     }
@@ -143,36 +143,36 @@ $entry += [IO.File]::ReadAllText((Join-Path $work 'pins'), $utf8)
 [IO.File]::WriteAllText((Join-Path $work 'entry.ini'), $entry, $utf8)
 foreach ($line in ($entry.TrimEnd("`n") -split "`n")) { Write-Output "say $line" }
 if ($env:RHUN_SX_HOW -eq 'gh') {
-    $login = (Gh api user --jq .login).Trim()
+    $login = (Invoke-GitHubCli api user --jq .login).Trim()
     if ($LASTEXITCODE -ne 0 -or $login -notmatch '^[A-Za-z0-9][A-Za-z0-9-]*$') { Fail "gh is not logged in: $login" }
     Step 1 4 "Forking rhun-editor/extensions as $login/extensions"
-    $parent = (Gh api "repos/$login/extensions" --jq .parent.full_name).Trim()
+    $parent = (Invoke-GitHubCli api "repos/$login/extensions" --jq .parent.full_name).Trim()
     if ($LASTEXITCODE -eq 0) {
         if ($parent -ne 'rhun-editor/extensions') { Fail "$login/extensions is there and is not a fork of rhun-editor/extensions" }
     } else {
-        $out = Gh repo fork rhun-editor/extensions --clone=false --default-branch-only
+        $out = Invoke-GitHubCli repo fork rhun-editor/extensions --clone=false --default-branch-only
         if ($LASTEXITCODE -ne 0) { Fail "gh could not fork rhun-editor/extensions: $out" }
     }
     $branch = 'submit-' + $full.Replace('/', '-') + "-$tag"
     Step 2 4 "Making the branch $branch"
-    Gh api -X POST "repos/$login/extensions/merge-upstream" -f branch=main | Out-Null
+    Invoke-GitHubCli api -X POST "repos/$login/extensions/merge-upstream" -f branch=main | Out-Null
     $sha = ''
     for ($i = 0; $i -lt 10; $i++) {
-        $sha = (Gh api "repos/$login/extensions/git/ref/heads/main" --jq .object.sha).Trim()
+        $sha = (Invoke-GitHubCli api "repos/$login/extensions/git/ref/heads/main" --jq .object.sha).Trim()
         if ($LASTEXITCODE -eq 0 -and $sha) { break }
         $sha = ''
         Start-Sleep -Seconds 3
     }
     if (-not $sha) { Fail "the fork $login/extensions has no main branch yet; try again in a minute" }
-    $out = Gh api -X POST "repos/$login/extensions/git/refs" -f "ref=refs/heads/$branch" -f "sha=$sha"
+    $out = Invoke-GitHubCli api -X POST "repos/$login/extensions/git/refs" -f "ref=refs/heads/$branch" -f "sha=$sha"
     if ($LASTEXITCODE -ne 0 -and $out -notmatch 'already exists') { Fail "gh could not make the branch ${branch}: $out" }
     Step 3 4 "Putting $full.ini on it"
-    $was = (Gh api "repos/$login/extensions/contents/$full.ini?ref=$branch" --jq .sha).Trim()
+    $was = (Invoke-GitHubCli api "repos/$login/extensions/contents/$full.ini?ref=$branch" --jq .sha).Trim()
     if ($LASTEXITCODE -ne 0) { $was = '' }
     $content = [Convert]::ToBase64String($utf8.GetBytes($entry))
     $put = @('api', '-X', 'PUT', "repos/$login/extensions/contents/$full.ini", '-f', "message=$full $tag", '-f', "content=$content", '-f', "branch=$branch")
     if ($was) { $put += @('-f', "sha=$was") }
-    $out = Gh @put
+    $out = Invoke-GitHubCli @put
     if ($LASTEXITCODE -ne 0) { Fail "gh could not put $full.ini on ${branch}: $out" }
     Step 4 4 'Opening the pull request'
     $commit = if ($entry -match '(?m)^commit = ([0-9a-f]+)') { $Matches[1] } else { '' }
@@ -181,7 +181,7 @@ if ($env:RHUN_SX_HOW -eq 'gh') {
         "- ``rhun-ext-check`` on the Linux build`n" +
         "- ``gh attestation verify`` of the archive against commit $commit and $full's .github/workflows/release.yml`n" +
         "- a review of the source since the previously pinned commit`n`nMade by rhun submit-extension."
-    $out = Gh pr create -R rhun-editor/extensions --base main --head "${login}:$branch" --title "$full $tag" --body $body
+    $out = Invoke-GitHubCli pr create -R rhun-editor/extensions --base main --head "${login}:$branch" --title "$full $tag" --body $body
     if ($LASTEXITCODE -ne 0) { Fail "gh could not open the pull request: $out" }
     $m = [regex]::Matches($out, 'https://\S*/pull/[0-9]+')
     if ($m.Count -gt 0) { Write-Output "pr $($m[$m.Count - 1].Value)" } else { Write-Output "pr $($out.Trim())" }
