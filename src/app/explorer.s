@@ -1062,7 +1062,7 @@ FN explorer_draw
     mov edx, [rsp + 4]
     M ecx, MI_40
     lea r8, [rip + .Lheader]
-    mov r9d, .Lheader_end - .Lheader - 1
+    mov r9d, .Lheader_end - .Lheader
     push rax
     COLOR eax, T_MUTED
     push rax
@@ -1941,7 +1941,7 @@ FN menu_print
 .Lm_remove_folder: .asciz "Remove Folder from Workspace"
 .Lm_add_folder: .asciz "Add Folder to Workspace"
 .Lempty_name: .asciz ""
-.Lheader: .asciz "EXPLORER"
+.Lheader: .ascii "EXPLORER"
 .Lheader_end:
 .p2align 3
 .Lheader_actions:
