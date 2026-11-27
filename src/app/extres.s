@@ -596,7 +596,6 @@ FN extres_frame
     call sample_all
     mov dword ptr [rip + g_dirty], 1
 9:  call vdoc_tick              # virtual documents waiting for their providers
-    call filesearch_tick        # finds and searches of extensions
     EPILOGUE
 
 # extres_timeout() -> rax the time (time_ms) the loop must come back for idleness and samples,
@@ -623,25 +622,14 @@ FN extres_timeout
     add r12, 1000
 3:  call vdoc_waiting           # a virtual document waits: back in 100 ms
     test eax, eax
-    jz 31f
+    jz 32f
     call time_ms
     add rax, 100
     cmp r12, -1
     je 30f
     cmp rax, r12
-    jae 31f
-30: mov r12, rax
-31: call filesearch_timeout     # finds and searches: now, or in 10 ms
-    test eax, eax
-    js 32f
-    mov r13d, eax
-    call time_ms
-    add rax, r13
-    cmp r12, -1
-    je 33f
-    cmp rax, r12
     jae 32f
-33: mov r12, rax
+30: mov r12, rax
 32: call time_ms
     sub rax, [rip + el_page_t]
     cmp rax, 3000

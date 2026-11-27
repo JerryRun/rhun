@@ -33,7 +33,7 @@ BOOLS = {
                'indent_guides word_wrap whitespace cursor_blink smooth_caret auto_pairs '
                'scroll_past_end vim_mode side_diff chinese_input chinese_follow_host '
                # language features
-               'complete_replace complete_commit_characters lightbulb format_on_type format_on_paste '
+               'builtin_definitions complete_replace complete_commit_characters lightbulb format_on_type format_on_paste '
                # editor presentation
                'folding inline_complete color_swatches highlight_occurrences code_lens inlay_hints '
                'semantic_highlighting'),

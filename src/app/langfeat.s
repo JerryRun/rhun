@@ -64,6 +64,9 @@ ENDSTRUCT LS_SIZE
 .bss
 .p2align 3
 lf_kind: .long 0                # the query in flight (LF_*), 0 for none
+lf_builtin: .long 0             # this query or result list is from the built-in index
+lf_builtin_version: .quad 0
+lf_builtin_cursor: .quad 0
 lf_session: .long 0
 lf_ready: .long 0               # every provider answered: the tick finishes it
 lf_truncated: .long 0           # the query's cap cut it short (query-part)
@@ -325,6 +328,11 @@ lf_cancel_all:
 FN langfeat_provider_cancel
 lf_reset:
     push rbx
+    cmp dword ptr [rip + lf_builtin], 0
+    je 1f
+    mov dword ptr [rip + lf_builtin], 0
+    call symbols_cancel
+1:
     call lf_cancel_all
     call lf_rs_withdraw         # a code action's resolve belongs to the results that go
     call palette_results_close
@@ -596,6 +604,21 @@ lf_start:
 8:  cmp dword ptr [rsp + 8], 0
     jne 9f
     # nobody to ask
+    cmp r12d, LF_DEF
+    jne 81f
+    cmp dword ptr [rip + lf_dest], 0
+    jne 81f
+    mov rdi, rbx
+    call symbols_start
+    test eax, eax
+    jz 81f
+    mov dword ptr [rip + lf_builtin], 1
+    mov rax, [rbx + DOC_version]
+    mov [rip + lf_builtin_version], rax
+    mov rax, [rbx + DOC_cur]
+    mov [rip + lf_builtin_cursor], rax
+    jmp 9f
+81:
     mov dword ptr [rip + lf_kind], 0
     lea rax, [rip + lf_none]
     mov rdi, [rax + r12*8]
@@ -657,6 +680,8 @@ FN cmd_declaration
 FN cmd_cancel_query
     cmp dword ptr [rip + lf_kind], 0
     je 1f
+    cmp dword ptr [rip + lf_builtin], 0
+    jne lf_reset
     push rbx
     call lf_cancel_all
     mov dword ptr [rip + lf_ready], 1
@@ -2970,18 +2995,90 @@ FN langfeat_tick
 0:
     cmp dword ptr [rip + lf_kind], 0
     je 9f
+    cmp dword ptr [rip + lf_builtin], 0
+    je 1f
+    mov rax, [rip + g_doc]
+    cmp rax, [rip + lf_doc]
+    jne 2f
+    mov rcx, [rax + DOC_version]
+    cmp rcx, [rip + lf_builtin_version]
+    jne 2f
+    mov rcx, [rax + DOC_cur]
+    cmp rcx, [rip + lf_builtin_cursor]
+    jne 2f
+    cmp dword ptr [rip + g_focus], FOCUS_EDITOR
+    jne 2f
+1:
     call lf_language_current
     test eax, eax
-    jnz 0f
+    jnz 3f
+2:
     call langfeat_provider_cancel
     jmp 9f
-0:
+3:
     cmp dword ptr [rip + lf_ready], 0
     je 9f
     call lf_cancel_all
     call lf_finish
 9:  pop rbx
     ret
+
+FN langfeat_symbols_cancel
+    cmp dword ptr [rip + lf_builtin], 0
+    jne lf_reset
+    ret
+
+# langfeat_symbols_done(partial): schedule navigation on the next normal editor tick.
+FN langfeat_symbols_done
+    cmp dword ptr [rip + lf_builtin], 0
+    je 9f
+    mov [rip + lf_truncated], edi
+    mov dword ptr [rip + lf_ready], 1
+    mov dword ptr [rip + g_dirty], 1
+9:  ret
+
+# langfeat_symbols_match(path, line, byte col, length): put a built-in match in the definition list.
+FN langfeat_symbols_match
+    PROLOGUE 16
+    mov r12, rdi
+    mov r13d, esi
+    mov r14d, edx
+    lea r15d, [rdx + rcx]
+    call strlen
+    mov rsi, rax
+    mov rdi, r12
+    call lf_str
+    mov [rsp], rax
+    lea rdi, [rip + lf_line]
+    call sb_clear
+    mov rdi, r12
+    call ws_rel
+    lea rdi, [rip + lf_line]
+    mov rsi, rax
+    call sb_push_cstr
+    lea rdi, [rip + lf_line]
+    mov esi, ':'
+    call sb_push_byte
+    lea rdi, [rip + lf_line]
+    mov esi, r13d
+    call sb_push_u64
+    mov rdi, [rip + lf_line + SB_ptr]
+    mov rsi, [rip + lf_line + SB_len]
+    call lf_str
+    mov [rsp + 8], rax
+    lea rdi, [rip + lf_res]
+    mov esi, LS_SIZE
+    call vec_push
+    mov rcx, [rsp]
+    mov [rax + LS_path], rcx
+    mov [rax + LS_l1], r13d
+    mov [rax + LS_l2], r13d
+    mov [rax + LS_c1], r14d
+    mov [rax + LS_c2], r15d
+    mov rcx, [rsp + 8]
+    mov [rax + LS_label], rcx
+    mov qword ptr [rax + LS_detail], -1
+    EPILOGUE
 
 # lf_finish(): what the answers mean for the user
 lf_finish:
@@ -3006,6 +3103,14 @@ lf_finish:
 0:
     test r12, r12
     jnz 1f
+    cmp dword ptr [rip + lf_builtin], 0
+    je .Lfn_empty
+    cmp dword ptr [rip + lf_truncated], 0
+    je .Lfn_empty
+    lea rdi, [rip + .Lsymbol_partial_empty]
+    call app_toast
+    jmp 9f
+.Lfn_empty:
     lea rax, [rip + lf_empty]
     mov rdi, [rax + rbx*8]
     call app_toast
@@ -3072,6 +3177,12 @@ lf_present_list:
     jmp 21f
 2:  lea rax, [rip + lf_lists]
     mov rdi, [rax + rbx*8]
+    cmp dword ptr [rip + lf_builtin], 0
+    je 20f
+    cmp dword ptr [rip + lf_truncated], 0
+    je 20f
+    lea rdi, [rip + .Lsymbol_partial]
+20:
     call palette_results_open
 21: xor r13d, r13d
 3:  cmp r13, [rip + lf_res + VEC_len]
@@ -3403,9 +3514,12 @@ FN langfeat_chosen
     imul r12, rbx, LS_SIZE
     add r12, [rip + lf_res + VEC_ptr]
     mov rdi, [r12 + LS_ext]
+    cmp dword ptr [rip + lf_builtin], 0
+    jne .Lchosen_valid
     call ext_is_visible
     test eax, eax
     jz 9f
+.Lchosen_valid:
     cmp dword ptr [rip + lf_list_kind], LF_ACTS
     je 1f
     cmp dword ptr [rip + lf_kind], 0  # chosen from a list shown early: the rest is not wanted
@@ -3429,6 +3543,15 @@ lf_goto:
     test rax, rax
     js 1f
     add rax, [rip + lf_bytes + SB_ptr]
+    cmp dword ptr [rip + lf_builtin], 0
+    je .Lgoto_open
+    mov r13, rax
+    mov rdi, rax
+    call symbols_location_current
+    test eax, eax
+    jz .Ldefinition_changed
+    mov rax, r13
+.Lgoto_open:
     mov rdi, rax
     call lf_open_path
     test rax, rax
@@ -3467,6 +3590,10 @@ lf_goto:
     call ed_touch
     mov dword ptr [rip + g_dirty], 1
 9:  EPILOGUE
+.Ldefinition_changed:
+    lea rdi, [rip + .Lsymbol_changed]
+    call app_toast
+    EPILOGUE
 
 # lf_open_path(path cstr) -> rax the DOC of "#ID" or of the file, its tab active, or 0
 lf_open_path:
@@ -3750,6 +3877,8 @@ FN langfeat_ext_gone
     mov qword ptr [rax + LS_ext], 0
     jmp 81b
 82: # nothing more to wait for: the tick finishes the query with what came
+    cmp dword ptr [rip + lf_builtin], 0
+    jne 9f
     cmp dword ptr [rip + lf_kind], 0
     je 9f
     cmp qword ptr [rip + lf_reqs + VEC_len], 0
@@ -3842,6 +3971,9 @@ lf_chain: .quad lf_rs_reply, lf_pr_reply, langextra_reply, results_reply, outlin
 .Le_syms: .asciz "No symbols in this file"
 .Le_acts: .asciz "No code actions here"
 .Ll_def: .asciz "Go to definition"
+.Lsymbol_partial: .asciz "Go to definition (partial index)"
+.Lsymbol_partial_empty: .asciz "No definition found in the partial index"
+.Lsymbol_changed: .asciz "Definition changed. Run Go to Definition again."
 .Ll_refs: .asciz "Go to reference"
 .Ll_syms: .asciz "Go to symbol"
 .Ll_acts: .asciz "Code action"

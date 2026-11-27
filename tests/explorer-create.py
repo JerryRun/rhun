@@ -10,11 +10,12 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 EXE = Path(os.environ.get('RHUN_TEST_EXE', ROOT / 'build/rhun')).resolve()
 
-# 1000x700 at scale 1: the explorer header's buttons (New File, New Folder, Refresh) end 8 points from
-# its right edge at 240; the first row is at 80. A menu opened at 600 is moved up to fit: its items
-# start at 566 and are 32 high.
-NEW_FILE = 'click 162 60'
-NEW_FOLDER = 'click 190 60'
+# 1000x700 at scale 1: the search button ends 8 points before the explorer's right edge at 240.
+# New File, New Folder and Refresh sit to its left. The first row is at 80. A menu opened at 600
+# is moved up to fit: its items start at 566 and are 32 high.
+NEW_FILE = 'click 130 60'
+NEW_FOLDER = 'click 158 60'
+SEARCH = 'click 218 60'
 EMPTY = 'click 120 600 right'
 ITEM = [f'click 180 {582 + 32 * i}' for i in range(4)]
 
@@ -44,6 +45,12 @@ with tempfile.TemporaryDirectory(prefix='rhun-create-') as temporary:
         # the prompt's text, with the platform's separators as /
         lines = [line for line in output.splitlines() if line.startswith('field=')]
         return [line[6:].replace('\\', '/') for line in lines]
+
+    query = ['type return 0', 'wait-grep', 'print-palette']
+    output = run([SEARCH, *query])
+    assert 'field=return 0\n> int main(void) { return 0; }\n' in output, output
+    assert output == run(['key ctrl+shift+f', *query]), output
+    print('ok   explorer/search-button')
 
     output = run([NEW_FILE, 'print-palette', 'type docs/notes.md', 'key Return', 'print-state'])
     assert 'prompt=New file\n' in output, output

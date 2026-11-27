@@ -289,7 +289,13 @@ act:
     EPILOGUE
 2:  mov rdi, rbx
     mov rsi, r12
+    cmp dword ptr [rip + cfg_builtin_definitions], 0
+    je 21f
+    call symbols_word
+    jmp 22f
+21:
     call word_at
+22:
     cmp rax, rdx
     jae 8f
     mov [rbx + DOC_cur], r12

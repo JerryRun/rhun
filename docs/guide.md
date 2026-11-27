@@ -959,6 +959,14 @@ commands:
 | F2 | Rename | on a word, asks for the new name (filled with what the extension says can be renamed there), then renames it in every file (see [Edits across files](#edits-across-files); without a matching rename provider, F2 renames the file) |
 | shift+alt+f | Format Document | with the document's tab width and spaces; with a selection, Format Selection when the extension can |
 
+**Settings → Editor → Built-in definition lookup** is off by default (`[editor] builtin_definitions = false`).
+When enabled, `F12` and `Ctrl+click` can find common function and global definitions in local
+Assembly, C/C++, Python, Go, Rust and JavaScript/TypeScript files if no running extension handles
+the request. The first lookup builds the workspace index in slices. Later lookups reuse unchanged
+files, and open files use their unsaved text. Multiple matches appear in the definition picker.
+The index skips files over 2 MiB. Lookup matches declaration names and leaves local scopes,
+imports and overload resolution to language providers.
+
 When the pointer rests on a word, extensions that support it show a **hover card**: the problems
 there first, then what each extension says, formatted and wrapped to the card's width; move the
 pointer onto the card to scroll it (Shift+wheel for a long code line), drag to select text, and click a link to follow it (with the

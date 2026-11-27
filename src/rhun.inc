@@ -510,6 +510,13 @@ ENDSTRUCT INI_SIZE
 .equ T_ACCENT_FG, 25
 .equ T_PANEL_FG, 26
 .equ T_SYN, 27              # + syntax class
+# built-in definition rules
+.equ SYMBOL_ASM, 1
+.equ SYMBOL_C, 2
+.equ SYMBOL_PYTHON, 3
+.equ SYMBOL_GO, 4
+.equ SYMBOL_RUST, 5
+.equ SYMBOL_JS, 6
 # syntax classes
 .equ C_TEXT, 0
 .equ C_KEYWORD, 1
@@ -1636,6 +1643,7 @@ ENDSTRUCT TF_SIZE
 .equ ID_EXP_NEW, 0x3f00
 .equ ID_EXP_REFRESH, 0x3f01
 .equ ID_EXP_NEW_FOLDER, 0x3f03
+.equ ID_EXP_SEARCH, 0x3f05
 
 # ---- images ----
 .equ IMF_PNG, 1

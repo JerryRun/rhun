@@ -1046,22 +1046,29 @@ FN explorer_draw
     mov edx, [rsp + 8]
     mov ecx, [rsp + 12]
     call gfx_clip_push
-    lea rdi, [rip + g_face_small]
-    mov esi, [rsp]
-    add esi, [rip + g_mt + 4*MI_16]
-    mov edx, [rsp + 4]
-    M ecx, MI_40
-    lea r8, [rip + .Lheader]
-    COLOR r9d, T_MUTED
-    call ui_text_c
-    xor edi, edi
-    mov esi, [rsp]
+    mov edi, [rsp]
+    mov esi, edi
     add esi, [rsp + 8]
     sub esi, [rip + g_mt + 4*MI_8]
     mov edx, [rsp + 4]
     M ecx, MI_40
-    call explorer_actions
-    xor edi, edi
+    call explorer_header_actions
+    lea rdi, [rip + g_face_small]
+    mov esi, [rsp]
+    add esi, [rip + g_mt + 4*MI_16]
+    sub eax, esi
+    cmp eax, [rip + g_mt + 4*MI_16]
+    jl 1f
+    mov edx, [rsp + 4]
+    M ecx, MI_40
+    lea r8, [rip + .Lheader]
+    mov r9d, .Lheader_end - .Lheader - 1
+    push rax
+    COLOR eax, T_MUTED
+    push rax
+    call ui_text_v_fit
+    add rsp, 16
+1:  xor edi, edi
     mov esi, [rsp]
     mov edx, [rsp + 4]
     add edx, [rip + g_mt + 4*MI_40]
@@ -1072,86 +1079,52 @@ FN explorer_draw
     call gfx_clip_pop
     EPILOGUE
 
-# explorer_actions(ctx, right, y, h) -> eax the x left of them: the header's buttons (New File, New
-#   Folder, Refresh) ending at right, centered in [y, y + h): the explorer's own header and its
-#   section's in a sidebar of several (places.s)
-FN explorer_actions
-    PROLOGUE 32
-    mov [rsp], esi
-    mov [rsp + 4], edx
-    mov r15d, ecx
-    M r12d, MI_28
-    mov esi, [rsp]
-    sub esi, r12d
-    mov [rsp + 16], esi
-    mov edi, ID_EXP_REFRESH
-    mov edx, r15d
-    sub edx, r12d
-    sar edx, 1
-    add edx, [rsp + 4]
+# explorer_header_actions(x, right, y, h) -> eax the left edge of the buttons
+FN explorer_header_actions
+    PROLOGUE 16
+    mov ebx, esi
+    lea r13d, [rdx + rcx]       # header bottom for tooltips
+    M r14d, MI_28
+    sub ecx, r14d
+    sar ecx, 1
+    add ecx, edx
+    mov [rsp], ecx              # button top
+    mov r12d, esi
+    sub r12d, edi
+    sub r12d, [rip + g_mt + 4*MI_64]  # leave room for the title and its inset
+    sub r12d, [rip + g_mt + 4*MI_8]
+    sub r12d, [rip + g_mt + 4*MI_4]   # gap left of Search
+    sar r12d, 2
+    M eax, MI_16
+    cmp r12d, eax
+    cmovl r12d, eax
+    cmp r12d, r14d
+    cmovg r12d, r14d
+    lea r15, [rip + .Lheader_actions]
+1:  sub ebx, r12d
+    mov edi, [r15]
+    mov esi, ebx
+    mov edx, [rsp]
     mov ecx, r12d
-    mov r8d, r12d
-    mov r9d, IC_REFRESH
+    mov r8d, r14d
+    mov r9d, [r15 + 4]
     call ui_icon_btn
     mov r8d, eax
-    mov edi, ID_EXP_REFRESH
-    mov esi, [rsp + 16]
-    mov edx, [rsp + 4]
-    add edx, r15d
+    mov edi, [r15]
+    mov esi, ebx
+    mov edx, r13d
     mov ecx, r12d
-    call tip_note               # keeps the button flags in eax
-    test eax, UB_CLICK
-    jz 1f
-    call explorer_refresh
-1:  mov esi, [rsp + 16]
-    sub esi, r12d
-    mov edi, ID_EXP_NEW_FOLDER
-    mov edx, r15d
-    sub edx, r12d
-    sar edx, 1
-    add edx, [rsp + 4]
-    mov ecx, r12d
-    mov r8d, r12d
-    mov r9d, IC_FOLDER_PLUS
-    call ui_icon_btn
-    mov r8d, eax
-    mov edi, ID_EXP_NEW_FOLDER
-    mov esi, [rsp + 16]
-    sub esi, r12d
-    mov edx, [rsp + 4]
-    add edx, r15d
-    mov ecx, r12d
-    call tip_note               # keeps the button flags in eax
-    test eax, UB_CLICK
-    jz 11f
-    call cmd_new_folder
-11: mov esi, [rsp + 16]
-    sub esi, r12d
-    sub esi, r12d
-    mov edi, ID_EXP_NEW
-    mov edx, r15d
-    sub edx, r12d
-    sar edx, 1
-    add edx, [rsp + 4]
-    mov ecx, r12d
-    mov r8d, r12d
-    mov r9d, IC_FILE_PLUS
-    call ui_icon_btn
-    mov r8d, eax
-    mov edi, ID_EXP_NEW
-    mov esi, [rsp + 16]
-    sub esi, r12d
-    sub esi, r12d
-    mov edx, [rsp + 4]
-    add edx, r15d
-    mov ecx, r12d
-    call tip_note               # keeps the button flags in eax
+    call tip_note
     test eax, UB_CLICK
     jz 2f
-    call cmd_new_file_prompt
-2:  mov eax, [rsp + 16]
-    sub eax, r12d
-    sub eax, r12d
+    call [r15 + 8]
+2:  cmp dword ptr [r15], ID_EXP_SEARCH
+    jne 3f
+    sub ebx, [rip + g_mt + 4*MI_4]
+3:  add r15, 16
+    cmp dword ptr [r15], 0
+    jne 1b
+    mov eax, ebx
     EPILOGUE
 
 # explorer_body_draw(ctx, x, y, w, h): the tree of the project's files (or "No folder open") in the
@@ -1969,6 +1942,18 @@ FN menu_print
 .Lm_add_folder: .asciz "Add Folder to Workspace"
 .Lempty_name: .asciz ""
 .Lheader: .asciz "EXPLORER"
+.Lheader_end:
+.p2align 3
+.Lheader_actions:
+    .long ID_EXP_SEARCH, IC_SEARCH
+    .quad cmd_find_in_files
+    .long ID_EXP_REFRESH, IC_REFRESH
+    .quad explorer_refresh
+    .long ID_EXP_NEW_FOLDER, IC_FOLDER_PLUS
+    .quad cmd_new_folder
+    .long ID_EXP_NEW, IC_FILE_PLUS
+    .quad cmd_new_file_prompt
+    .long 0
 .ifdef MACOS
 .Lno_folder: .asciz "No folder open (\342\207\247\342\214\230O)"
 .else

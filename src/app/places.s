@@ -584,8 +584,8 @@ FN badge_draw
 # ---------------- the sidebar ----------------
 
 # sidebar_draw(x, y, w, h): the explorer alone as it always was; with other sections, each its header
-#   (chevron, title in capitals, badge, its actions while the pointer is over it or it has the
-#   keyboard) and, when expanded, its body; the expanded bodies share the height by weight
+#   (chevron, title in capitals, badge, and actions) and, when expanded, its body;
+#   the expanded bodies share the height by weight
 FN sidebar_draw
     PROLOGUE 64
     mov [rsp], edi
@@ -726,10 +726,22 @@ section_header:
     M ecx, MI_1
     COLOR r8d, T_BORDER
     call gfx_fill
-1:  lea edi, [rbx + ID_SB_HEAD]
+1:  mov r14d, [rsp]
+    add r14d, [rsp + 8]
+    cmp ebx, [rip + g_explorer_place]
+    jne 11f
+    mov edi, [rsp]
+    mov esi, r14d
+    sub esi, [rip + g_mt + 4*MI_4]
+    mov edx, [rsp + 4]
+    mov ecx, r15d
+    call explorer_header_actions
+    mov r14d, eax              # the buttons are outside the disclosure hit area
+11: lea edi, [rbx + ID_SB_HEAD]
     mov esi, [rsp]
     mov edx, [rsp + 4]
-    mov ecx, [rsp + 8]
+    mov ecx, r14d
+    sub ecx, esi
     mov r8d, r15d
     call ui_btn
     mov [rsp + 16], eax
@@ -778,6 +790,7 @@ section_header:
     inc ecx
     jmp 3b
 4:  mov byte ptr [rdi + rcx], 0
+    mov r10d, ecx              # title length for the explorer's fitted label
     lea rdi, [rip + g_face_small]
     mov esi, [rsp]
     add esi, [rip + g_mt + 4*MI_24]
@@ -788,8 +801,21 @@ section_header:
     test dword ptr [rsp + 16], UB_HOVER
     jz 41f
     COLOR r9d, T_FG
-41: call ui_text_c
-    mov r13d, eax               # x after the title
+41: cmp ebx, [rip + g_explorer_place]
+    jne 42f
+    mov r11d, r14d
+    sub r11d, esi
+    mov eax, esi
+    cmp r11d, [rip + g_mt + 4*MI_16]
+    jl 43f
+    push r11
+    push r9
+    mov r9d, r10d
+    call ui_text_v_fit
+    add rsp, 16
+    jmp 43f
+42: call ui_text_c
+43: mov r13d, eax               # x after the title
     cmp dword ptr [r12 + PL_badge], 0
     je 5f
     mov edi, r13d
@@ -823,16 +849,11 @@ section_header:
     jnz 7f
     call place_focused
     cmp eax, ebx
-    je 7f
-    cmp ebx, [rip + g_explorer_place]
-    jne 9f
-    cmp dword ptr [rip + g_focus], FOCUS_EXPLORER
     jne 9f
 7:  mov rax, [r12 + PL_ops]
     mov rax, [rax + PLO_actions]
     mov rdi, [r12 + PL_ctx]
-    mov esi, [rsp]
-    add esi, [rsp + 8]
+    mov esi, r14d
     sub esi, [rip + g_mt + 4*MI_4]
     mov edx, [rsp + 4]
     mov ecx, r15d
@@ -1646,4 +1667,4 @@ FN places_init
 .Lexp_title: .asciz "Explore"
 .p2align 3
 explorer_ops:
-    .quad explorer_body_draw, 0, 0, 0, explorer_actions, 0
+    .quad explorer_body_draw, 0, 0, 0, 0, 0

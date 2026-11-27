@@ -273,6 +273,26 @@ class PanelLayout(unittest.TestCase):
         self.assertIn('explorer=1 agents=0 term=0 git=0', out)
         self.assertIn('tabs=*example.txt', out)
 
+    def test_explore_search_leaves_the_disclosure_state_alone(self):
+        search = ['click 222 54', 'type changed', 'wait-grep', 'print-palette', 'key Escape']
+        out = self.run_editor(['cmd toggle_sidebar', *search, 'print-sidebar',
+                               'click 30 54', *search, 'print-sidebar'])
+        self.assertEqual(out.count('field=changed\n> changed\n'), 2, out)
+        explore = [line for line in out.splitlines() if line.startswith('explorer title=Explore')]
+        self.assertEqual(['collapsed' in line for line in explore], [False, True], out)
+
+    def test_explore_header_buttons_stay_visible_with_the_pointer_away(self):
+        self.run_editor(['cmd toggle_sidebar', 'move 600 400', self.shot('explore-expanded'),
+                         'click 30 54', 'move 600 400', self.shot('explore-collapsed')])
+        from PIL import Image, ImageChops
+        for state in ('expanded', 'collapsed'):
+            with Image.open(self.home / f'explore-{state}.ppm') as image:
+                background = image.getpixel((100, 54))
+                for x in (134, 162, 190, 222):
+                    icon = image.crop((x - 9, 45, x + 9, 63))
+                    blank = Image.new(image.mode, icon.size, background)
+                    self.assertIsNotNone(ImageChops.difference(icon, blank).getbbox(), (state, x))
+
     def test_three_blocks_default_states_and_independent_disclosures(self):
         out = self.run_editor(['cmd toggle_sidebar', 'wait 80', 'print-sidebar',
             self.shot('shared-sidebar-default'), 'click 30 732', 'wait 80',

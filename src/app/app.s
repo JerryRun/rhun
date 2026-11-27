@@ -2220,6 +2220,7 @@ FN app_apply_settings
     call ai_apply
     call vim_sync
     call watch_apply_settings
+    call symbols_apply_settings
     mov dword ptr [rip + g_dirty], 1
     EPILOGUE
 
@@ -2963,6 +2964,7 @@ timeout_fns:
     .quad sb_timeout
     .quad term_timeout
     .quad ext_timeout
+    .quad filesearch_timeout    # workspace scans for built-in definitions and extensions
     .quad complete_timeout
     .quad langfeat_timeout
     .quad outline_timeout       # language features: the Outline's debounce (outline.s)
@@ -3023,6 +3025,7 @@ FN app_tick
     call palette_tick
     call editor_tick
     call ext_tick
+    call filesearch_tick
     call extrec_tick            # extension management: first starts of new versions
     call extupdate_tick         # and update checks
     call ext_provider_tick
@@ -6936,6 +6939,7 @@ tip_table:
     .quad ID_EXP_NEW, .Ltip_exp_new, 0
     .quad ID_EXP_NEW_FOLDER, .Ltip_exp_new_folder, 0
     .quad ID_EXP_REFRESH, .Ltip_exp_refresh, 0
+    .quad ID_EXP_SEARCH, .Ltip_exp_search, cmd_find_in_files
     .quad ID_TAB_NEW, .Ltip_tab_new, cmd_new_file
     .quad ID_STATUS + 2, .Ltip_git, cmd_toggle_git
     .quad 0, 0, 0
@@ -6953,6 +6957,7 @@ tip_table:
 .Ltip_exp_new: .asciz "New file"
 .Ltip_exp_new_folder: .asciz "New folder"
 .Ltip_exp_refresh: .asciz "Refresh explorer"
+.Ltip_exp_search: .asciz "Find in Files"
 .Ltip_tab_new: .asciz "New file"
 .Ltip_eq: .asciz "tip="
 .Lgit_tab: .asciz "Git"

@@ -36,6 +36,7 @@
 .equ FSR_RX_WORK, 1000000       # regex work for one line
 .equ FSK_FIND, 1
 .equ FSK_SEARCH, 2
+.equ FSK_SYMBOLS, 3              # local consumer of the same workspace walk
 .equ FSF_IGNORED, 1             # ignored files too: a walk without the exclude setting
 .equ FSF_HIDDEN, 2              # skip names starting with .
 .equ FSF_LINKS, 4               # follow links to folders
@@ -110,6 +111,7 @@ fsr_rr: .quad 0
 fsr_msg: .zero SB_SIZE
 fsr_rel: .zero 4200
 fsr_seg: .zero 264
+fsr_active: .long 0
 
 .text
 
@@ -117,6 +119,26 @@ fsr_seg: .zero 264
 FN filesearch_body
     mov [rip + fsr_body], rdi
     mov [rip + fsr_blen], rsi
+    ret
+
+# The built-in index shares the walk and its frame budget, with no extension or wire output.
+FN filesearch_symbols_start
+    xor edi, edi
+    xor esi, esi
+    mov edx, FSK_SYMBOLS
+    xor ecx, ecx
+    mov r8d, FSR_FIND_MAX
+    mov r9d, FSF_HIDDEN
+    jmp filesearch_start
+
+FN filesearch_symbols_cancel
+    lea rdi, [rip + fsr_slots]
+    mov ecx, FSR_SLOTS
+1:  cmp dword ptr [rdi + FSR_kind], FSK_SYMBOLS
+    je fsr_free
+    add rdi, FSR_SIZE
+    dec ecx
+    jnz 1b
     ret
 
 # FN filesearch_start(ext, id, kind, folder, max, flags) -> rax 0 or the error
@@ -131,6 +153,8 @@ FN filesearch_start
     mov eax, FSF_FIND_ALL
     mov ecx, FSR_FIND_MAX
     cmp r12d, FSK_FIND
+    je 1f
+    cmp r12d, FSK_SYMBOLS
     je 1f
     mov eax, FSF_SEARCH_ALL
     mov ecx, FSR_SEARCH_MAX
@@ -179,6 +203,10 @@ FN filesearch_start
     mov [rsp + 32], rax
     mov qword ptr [rsp + 40], 0 # pattern
     mov qword ptr [rsp + 48], 0
+    cmp r12d, FSK_SYMBOLS
+    jne 51f
+    mov qword ptr [rsp + 32], 0 # symbol indexing has no protocol body
+51:
     cmp r12d, FSK_SEARCH
     jne 6f
     call fsr_parse_search
@@ -243,6 +271,7 @@ FN filesearch_start
     jmp .Lst_err
 9:  mov rdi, [rsp + 16]
     mov dword ptr [rdi + FSR_state], FSS_WAITING
+    inc dword ptr [rip + fsr_active]
     mov dword ptr [rip + g_dirty], 1
     xor eax, eax
     EPILOGUE
@@ -349,6 +378,10 @@ fsr_parse_search:
 fsr_free:
     PROLOGUE
     mov rbx, rdi
+    cmp dword ptr [rbx + FSR_state], 0
+    je 0f
+    dec dword ptr [rip + fsr_active]
+0:
     mov rdi, [rbx + FSR_job]
     test rdi, rdi
     jz 1f
@@ -470,6 +503,11 @@ FN filesearch_ext_gone
 # FN filesearch_timeout() -> eax 0 while a run can work, 10 while runs wait for their extension to
 # read, -1 when none runs (or git is still listing)
 FN filesearch_timeout
+    cmp dword ptr [rip + fsr_active], 0
+    jne 0f
+    mov eax, -1
+    ret
+0:
     push rbx
     push r12
     mov r12d, -1
@@ -484,6 +522,8 @@ FN filesearch_timeout
     cmp dword ptr [rbx + FSR_git], 0
     jne 2f
     mov rax, [rbx + FSR_ext]
+    test rax, rax
+    jz 8f
     mov rdx, [rax + EXT_wq + SB_len]
     sub rdx, [rax + EXT_wq_off]
     cmp rdx, FSR_PAUSE
@@ -502,6 +542,12 @@ FN filesearch_timeout
 # FSR_SLICE_US in all
 FN filesearch_tick
     PROLOGUE
+    cmp dword ptr [rip + cfg_builtin_definitions], 0
+    je 0f
+    call symbols_workspace_changed
+0:
+    cmp dword ptr [rip + fsr_active], 0
+    je 9f
     lea rbx, [rip + fsr_slots]
     xor r12d, r12d              # running
     xor ecx, ecx
@@ -563,6 +609,8 @@ fsr_work:
     cmp dword ptr [rbx + FSR_state], FSS_RUNNING
     jne .Lwk_out
     mov rax, [rbx + FSR_ext]
+    test rax, rax
+    jz .Lwk_symbols
     mov rdx, [rax + EXT_wq + SB_len]
     sub rdx, [rax + EXT_wq_off]
     cmp rdx, FSR_PAUSE
@@ -577,6 +625,13 @@ fsr_work:
     je .Lwk_out                 # the run ended
     call fsr_file_end
     jmp .Lwk_loop
+.Lwk_symbols:
+    call symbols_step
+    test eax, eax
+    jnz .Lwk_loop
+    call symbols_local_only
+    test eax, eax
+    jnz .Lwk_finish
 1:  # paths to take
     mov rax, [rbx + FSR_lpos]
     cmp rax, [rbx + FSR_list + SB_len]
@@ -600,6 +655,7 @@ fsr_work:
     jz .Lwk_loop
     cmp eax, 1
     je .Lwk_out
+.Lwk_finish:
     call fsr_finish
 .Lwk_out:
     EPILOGUE
@@ -990,6 +1046,8 @@ fsr_entry:
     call fglob_listed
     test eax, eax
     jz 8f
+    cmp dword ptr [rbx + FSR_kind], FSK_SYMBOLS
+    je .Len_symbols
     cmp dword ptr [rbx + FSR_kind], FSK_SEARCH
     je 5f
     # find-files: git's paths must be files that are there (not gitlinks, not deleted ones)
@@ -1038,6 +1096,24 @@ fsr_entry:
     call fsr_open
 8:  xor eax, eax
     EPILOGUE
+.Len_symbols:
+    inc qword ptr [rbx + FSR_count]
+    mov rax, [rbx + FSR_count]
+    cmp rax, [rbx + FSR_max]
+    ja .Len_symbol_limit
+    mov rdi, [rbx + FSR_root]
+    mov rsi, r12
+    call path_join
+    mov r12, rax
+    mov rdi, rax
+    call symbols_file
+    mov rdi, r12
+    call mem_free
+    jmp 8b
+.Len_symbol_limit:
+    mov dword ptr [rbx + FSR_limit], 1
+    call fsr_finish
+    jmp .Len_ended
 
 # fsr_record(path, len) with rbx the run -> eax 1 when the run ended (MAX): FOLDER PATH_LEN LF
 # PATH into the batch
@@ -1342,6 +1418,15 @@ fsr_digits:
 # fsr_finish() with rbx the run: the last batch, the answer, the slot free
 fsr_finish:
     PROLOGUE
+    cmp dword ptr [rbx + FSR_kind], FSK_SYMBOLS
+    jne 0f
+    mov edi, [rbx + FSR_partial]
+    or edi, [rbx + FSR_limit]
+    call symbols_finish
+    mov rdi, rbx
+    call fsr_free
+    EPILOGUE
+0:
     cmp qword ptr [rbx + FSR_text], 0
     je 1f
     call fsr_file_end

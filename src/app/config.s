@@ -40,6 +40,8 @@ cfg_inlay_hints: .long 1        # editor presentation: inlay hints (inlay.s)
 cfg_code_lens: .long 1          # editor presentation: code lens (lens.s)
 .globl cfg_highlight_occurrences
 cfg_highlight_occurrences: .long 1      # editor presentation: the caret's word's occurrences (hicolor.s)
+.globl cfg_builtin_definitions
+cfg_builtin_definitions: .long 0
 .globl cfg_color_swatches
 cfg_color_swatches: .long 1     # editor presentation: color swatches (hicolor.s)
 .globl cfg_inline_complete, cfg_inline_complete_delay
@@ -994,6 +996,7 @@ g_settings:
     SETTING .Ls_editor, scroll_past_end, ST_BOOL, cfg_scroll_past_end, 0, 1, 1, 0, "Scroll past end", "Allow scrolling the last line to the top."
     SETTING .Ls_editor, vim_mode, ST_BOOL, cfg_vim, 0, 1, 1, 0, "Vim mode", "Normal, insert and visual modes with vim keys."
     # language features
+    SETTING .Ls_editor, builtin_definitions, ST_BOOL, cfg_builtin_definitions, 0, 1, 1, 0, "Built-in definition lookup", "Find functions and global variables in local projects when no extension provides definitions."
     SETTING .Ls_editor, complete_replace, ST_BOOL, cfg_complete_replace, 0, 1, 1, 0, "Completion replaces the word", "Accepting a completion replaces the rest of the word after the cursor (shift+Enter does the other)."
     SETTING .Ls_editor, complete_commit_characters, ST_BOOL, cfg_complete_commit, 0, 1, 1, 0, "Commit characters", "Typing a character the selected completion lists, such as a dot, accepts it first."
     SETTING .Ls_editor, lightbulb, ST_BOOL, cfg_lightbulb, 0, 1, 1, 0, "Quick fix lightbulb", "Show a lightbulb in the gutter where a quick fix is available."
