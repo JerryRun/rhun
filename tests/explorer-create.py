@@ -48,7 +48,8 @@ with tempfile.TemporaryDirectory(prefix='rhun-create-') as temporary:
 
     query = ['type return 0', 'wait-grep', 'print-palette']
     output = run([SEARCH, *query])
-    assert 'field=return 0\n> int main(void) { return 0; }\n' in output, output
+    assert [line.rstrip() for line in output.splitlines()] == [
+        'field=return 0', '> int main(void) { return 0; }'], output
     assert output == run(['key ctrl+shift+f', *query]), output
     print('ok   explorer/search-button')
 
